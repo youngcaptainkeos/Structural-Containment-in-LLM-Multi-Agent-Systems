@@ -270,3 +270,7 @@ Each run contains:
 The framework is intended to evaluate the hypothesis that containment requirements depend on execution topology and that runtime-computed feedback vertex sets can reduce compromise propagation.
 
 The implementation serves as an experimental platform for studying graph-theoretic containment in multi-agent systems.
+
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for details.
