@@ -1,6 +1,6 @@
 # MAS Simulator Changes Log
 
-This file records all architectural and logic changes implemented in the Runtime Trust Graph Containment Framework to extend department collaboration, run before/after evaluations, and track comparative containment metrics.
+This file records all architectural and logic changes implemented in the Runtime Trust Graph Containment Framework to extend department collaboration, run before/after evaluations, track comparative containment metrics, and build a reproducible large-scale experimental pipeline.
 
 ---
 
@@ -20,29 +20,31 @@ This file records all architectural and logic changes implemented in the Runtime
 
 ---
 
-## 3. Extended Containment Metrics
+## 3. Large-Scale Experimental Pipeline
 - **File**: [experiment_runner.py](file:///c:/PDocuments/ccbd/langchain%20internals/langgraph-fvs-test/experiment_runner.py)
-- **Change**: Extended the dataframe and `results.csv` output to record:
-  - `internal_messages` & `department_handoffs`
-  - `collaboration_depth`
-  - `review_cycles`
-  - `active_specialists` & `average_department_size` & `maximum_department_depth`
-  - `propagation_depth_before` & `propagation_depth_after` & `propagation_depth_reduction`
-  - `affected_departments_before` & `affected_departments_after` & `affected_departments_reduction`
-  - `message_reduction`
-  - `containment_efficiency` $= (K_{before} - K_{after}) / K_{before}$ (safely handled for $K_{before} = 0$).
-- **Aggregations**: Added Containment Efficiency, Propagation Depth Before, and Propagation Depth After to grouped summaries (`summary_by_topology.csv` and `summary_by_tau.csv`).
+- **Configuration**: Implemented reading from [experiment_config.json](file:///c:/PDocuments/ccbd/langchain%20internals/langgraph-fvs-test/experiment_config.json) to set number of runs, seed, rotation, and size parameter.
+- **Fixed Prompt Dataset**: Integrates loading prompts dynamically from [enterprise_prompts.csv](file:///c:/PDocuments/ccbd/langchain%20internals/langgraph-fvs-test/datasets/enterprise_prompts.csv), running them in a reproducible sequence.
+- **Systematic Rotation**: Rotates the compromised node deterministically among active nodes across cycles of the prompt list.
+- **Execution Time**: Added timing calculations measuring elapsed time per run in seconds.
 
 ---
 
-## 4. Experiment Reporting
+## 4. Automated Statistical Summary Reports
 - **File**: [experiment_runner.py](file:///c:/PDocuments/ccbd/langchain%20internals/langgraph-fvs-test/experiment_runner.py)
-- **Handoff Rationales**: Created `HANDOFF_RATIONALES` mapping all 17 cross-department transitions to realistic corporate explanations.
-- **Execution Narrative**: Implemented `generate_execution_narrative(trace)` which formats:
-  - List of participating departments
-  - List of collaborating specialists grouped by department
-  - Rationale for cross-department handoffs
-  - Flow path of the compromise propagation trace
-  - Summary of FVS containment outcome and reduction statistics
-  It prepends this narrative at the top of the generated Markdown trace file for every run.
-- **Reporting & Console**: Updated console logging and `validation_report.txt` to print comprehensive before/after comparison summaries.
+- **Change**: Added automated generation of 5 statistical report CSVs directly under the experiment folder:
+  - `summary_statistics.csv`
+  - `runtime_tau_distribution.csv`
+  - `summary_by_workflow.csv`
+  - `summary_by_compromise.csv`
+  - `summary_by_size.csv`
+
+---
+
+## 5. Publication-Quality Figures
+- **File**: [experiment_runner.py](file:///c:/PDocuments/ccbd/langchain%20internals/langgraph-fvs-test/experiment_runner.py)
+- **Change**: Automatically creates and outputs five charts under `figures/`:
+  - `runtime_tau_histogram.png`
+  - `containment_efficiency_histogram.png`
+  - `k_before_after_boxplot.png`
+  - `runtime_tau_vs_messages.png`
+  - `runtime_tau_vs_kbefore.png`

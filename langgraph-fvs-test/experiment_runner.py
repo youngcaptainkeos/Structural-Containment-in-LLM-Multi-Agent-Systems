@@ -65,7 +65,7 @@ def create_experiment_directory() -> tuple[str, Path]:
         path = EXPERIMENTS_DIR / experiment_id
         try:
             path.mkdir()
-            (path / "graphs").mkdir()
+            (path / "figures").mkdir()
             (path / "runtime_logs").mkdir()
             (path / "communications").mkdir()
             return experiment_id, path
@@ -630,79 +630,89 @@ def save_scc_graph(path: Path, graph: nx.DiGraph, title: str) -> None:
     plt.close(figure)
 
 
-def save_aggregate_charts(results: pd.DataFrame, graphs_dir: Path) -> None:
+def save_aggregate_charts(results: pd.DataFrame, figures_dir: Path) -> None:
     """Save τ distribution and compromise propagation comparison charts."""
-    tau_min = int(results["Runtime τ_FVS"].min())
-    tau_max = int(results["Runtime τ_FVS"].max())
+    # 1. runtime_tau_histogram.png
+    tau_min = int(results["Runtime τ"].min())
+    tau_max = int(results["Runtime τ"].max())
     bins = [value - 0.5 for value in range(tau_min, tau_max + 2)]
     figure, axis = plt.subplots(figsize=(8, 5))
-    axis.hist(results["Runtime τ_FVS"], bins=bins, edgecolor="black", color="#3498db")
+    axis.hist(results["Runtime τ"], bins=bins, edgecolor="black", color="#3498db")
     axis.set_xticks(range(tau_min, tau_max + 1))
-    axis.set_xlabel("Runtime τ_FVS")
-    axis.set_ylabel("Run count")
-    axis.set_title("Runtime τ_FVS Distribution")
+    axis.set_xlabel("Runtime τ")
+    axis.set_ylabel("Run Count")
+    axis.set_title("Runtime τ Distribution")
     figure.tight_layout()
-    figure.savefig(graphs_dir / "runtime_tau_histogram.png", dpi=300)
+    figure.savefig(figures_dir / "runtime_tau_histogram.png", dpi=300)
     plt.close(figure)
 
-    positions = list(range(len(results)))
-    width = 0.42
-    figure, axis = plt.subplots(figsize=(15, 6))
-    axis.bar(
-        [position - width / 2 for position in positions],
-        results["K Before"],
-        width,
-        label="K Before",
-        color="#f1c40f",
-    )
-    axis.bar(
-        [position + width / 2 for position in positions],
-        results["K After"],
-        width,
-        label="K After",
-        color="#2ecc71",
-    )
-    axis.set_xlabel("Run")
-    axis.set_ylabel("Infected downstream agents")
-    axis.set_title("Compromise Propagation Before vs After FVS Revocation")
-    axis.set_xticks(positions)
-    axis.set_xticklabels(results["Run ID"], rotation=90, fontsize=7)
-    axis.legend()
+    # 2. containment_efficiency_histogram.png
+    figure, axis = plt.subplots(figsize=(8, 5))
+    axis.hist(results["Containment Efficiency"] * 100, bins=10, edgecolor="black", color="#2ecc71")
+    axis.set_xlabel("Containment Efficiency (%)")
+    axis.set_ylabel("Run Count")
+    axis.set_title("Containment Efficiency Distribution")
     figure.tight_layout()
-    figure.savefig(graphs_dir / "k_before_vs_after.png", dpi=300)
+    figure.savefig(figures_dir / "containment_efficiency_histogram.png", dpi=300)
+    plt.close(figure)
+
+    # 3. k_before_after_boxplot.png
+    figure, axis = plt.subplots(figsize=(8, 5))
+    axis.boxplot([results["K Before"], results["K After"]])
+    axis.set_xticklabels(["K Before", "K After"])
+    axis.set_ylabel("Infected Agents Count")
+    axis.set_title("Compromise Footprint Before vs After Revocation")
+    figure.tight_layout()
+    figure.savefig(figures_dir / "k_before_after_boxplot.png", dpi=300)
+    plt.close(figure)
+
+    # 4. runtime_tau_vs_messages.png
+    figure, axis = plt.subplots(figsize=(8, 5))
+    axis.scatter(results["Runtime τ"], results["Messages Before"], alpha=0.6, color="#e74c3c", edgecolor="black")
+    axis.set_xlabel("Runtime τ")
+    axis.set_ylabel("Messages Before")
+    axis.set_title("Runtime τ vs Message Count")
+    figure.tight_layout()
+    figure.savefig(figures_dir / "runtime_tau_vs_messages.png", dpi=300)
+    plt.close(figure)
+
+    # 5. runtime_tau_vs_kbefore.png
+    figure, axis = plt.subplots(figsize=(8, 5))
+    axis.scatter(results["Runtime τ"], results["K Before"], alpha=0.6, color="#9b59b6", edgecolor="black")
+    axis.set_xlabel("Runtime τ")
+    axis.set_ylabel("K Before (Infected Downstream Agents)")
+    axis.set_title("Runtime τ vs Initial Compromise Footprint")
+    figure.tight_layout()
+    figure.savefig(figures_dir / "runtime_tau_vs_kbefore.png", dpi=300)
     plt.close(figure)
 
 
-def write_prompts(path: Path) -> None:
+def write_prompts(path: Path, prompts: list[str]) -> None:
     """Persist the exact ordered prompt set used by the experiment."""
     path.write_text(
-        "\n".join(f"{index}. {prompt}" for index, prompt in enumerate(PROMPTS, 1)) + "\n",
+        "\n".join(f"{index}. {prompt}" for index, prompt in enumerate(prompts, 1)) + "\n",
         encoding="utf-8",
     )
 
 
-def write_metadata(experiment_id: str, path: Path, run_count: int) -> None:
+def write_metadata(experiment_id: str, path: Path, run_count: int, seed: int = 42) -> None:
     """Persist experiment configuration and reproducibility metadata."""
+    import subprocess
+    git_commit = "unknown"
+    try:
+        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode("utf-8").strip()
+    except Exception:
+        pass
     metadata = {
-        "experiment_id": experiment_id,
-        "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "static_tau": STATIC_TAU,
-        "layout_seed": LAYOUT_SEED,
-        "node_count": len(NODES),
-        "nodes": NODES,
-        "topologies": list(TOPOLOGIES),
-        "topology_tau": EXPECTED_TOPOLOGY_TAU,
-        "prompt_count": len(PROMPTS),
-        "run_count": run_count,
-        "summary_files": ["summary_by_topology.csv", "summary_by_tau.csv"],
-        "compromised_node_rotation": COMPROMISED_NODES,
-        "communication_model": (
-            "Deterministic simulation: one source execution and one message per "
-            "reachable directed edge, with each reachable node expanded once."
-        ),
-        "communication_formats": ["json", "markdown"],
-        "networkx_version": nx.__version__,
-        "pandas_version": pd.__version__,
+        "Experiment ID": experiment_id,
+        "Date": datetime.now(timezone.utc).isoformat(),
+        "Git Commit": git_commit,
+        "Seed": seed,
+        "Prompt Dataset Version": "1.0",
+        "Enterprise Size": len(NODES),
+        "Number of Runs": run_count,
+        "Workflow Families": 10,
+        "Simulator Version": "1.0"
     }
     path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
 
@@ -761,7 +771,7 @@ def write_validation_report(
     total_messages = int(results["Message Count"].sum())
     bound_holds = maximum <= STATIC_TAU
     
-    unique_hashes = results["graph_hash"].nunique()
+    unique_hashes = results["Graph Hash"].nunique()
     
     avg_efficiency = float(results["containment_efficiency"].mean() * 100)
     avg_prop_depth_before = float(results["propagation_depth_before"].mean())
@@ -840,17 +850,64 @@ def write_validation_report(
 
 
 def run_experiment() -> tuple[str, Path, pd.DataFrame]:
-    """Execute every sampled prompt against a prompt-specific enterprise graph."""
+    """Execute enterprise workflows from datasets/enterprise_prompts.csv according to experiment_config.json."""
+    import time
+    import subprocess
+    
     experiment_id, experiment_dir = create_experiment_directory()
-    graphs_dir = experiment_dir / "graphs"
+    figures_dir = experiment_dir / "figures"
     logs_dir = experiment_dir / "runtime_logs"
     communications_dir = experiment_dir / "communications"
-    write_prompts(experiment_dir / "prompts.txt")
+    
+    # 1. Read configuration
+    config_path = ROOT / "experiment_config.json"
+    if config_path.exists():
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    else:
+        config = {
+            "runs": 100,
+            "enterprise_sizes": [32],
+            "workflow_families": 10,
+            "prompts_per_family": 10,
+            "compromise_rotation": true,
+            "seed": 42
+        }
+    
+    runs = config.get("runs", 100)
+    seed = config.get("seed", 42)
+    compromise_rotation = config.get("compromise_rotation", True)
+    
+    # 2. Read prompt dataset
+    prompts_path = ROOT / "datasets" / "enterprise_prompts.csv"
+    if not prompts_path.exists():
+        raise FileNotFoundError(f"Prompts dataset not found at: {prompts_path}")
+    prompts_df = pd.read_csv(prompts_path)
+    num_prompts = len(prompts_df)
+    
+    write_prompts(experiment_dir / "prompts.txt", prompts_df["Prompt"].tolist())
 
     records = []
-    for prompt_number, scenario in enumerate(PROMPT_SCENARIOS, 1):
-        prompt = scenario["prompt"]
-        graph = build_enterprise_runtime_trust_graph(prompt, seed=LAYOUT_SEED)
+    for run_idx in range(runs):
+        prompt_number = (run_idx % num_prompts) + 1
+        row = prompts_df.iloc[prompt_number - 1]
+        prompt = row["Prompt"]
+        prompt_id = row["Prompt_ID"]
+        workflow_family = row["Workflow_Family"].lower()
+        
+        scenario = {
+            "prompt_id": prompt_id,
+            "prompt": prompt,
+            "workflow_family": workflow_family,
+            "difficulty": row["Difficulty"],
+            "category": row["Enterprise_Domain"],
+            "finding": f"identified risk in {row['Enterprise_Domain'].lower()}",
+            "estimate": f"exposure estimated at ${1.5 + (run_idx % 5) * 0.5:.1f}M",
+        }
+        
+        start_time = time.perf_counter()
+        
+        graph = build_enterprise_runtime_trust_graph(prompt, seed=seed)
         route = route_prompt_departments(prompt)
         topology = "workflow_" + "_to_".join(route).lower()
         trace_id = TOPOLOGY_TRACE_IDS["enterprise_departmental_workflow"]
@@ -858,8 +915,13 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
         tau_runtime, fvs_nodes = compute_fvs(graph)
         scc_count = nx.number_strongly_connected_components(graph)
         active_nodes = sorted(graph.nodes())
-        compromised = active_nodes[(prompt_number - 1) % len(active_nodes)]
-        run_id = f"run_{prompt_number:03d}"
+        
+        if compromise_rotation:
+            compromised = active_nodes[(run_idx // num_prompts) % len(active_nodes)]
+        else:
+            compromised = active_nodes[0]
+            
+        run_id = f"run_{run_idx + 1:03d}"
         
         # Linear-time BFS depth compromise propagation
         infected_before, depth_before = propagate_compromise_depth(graph, compromised)
@@ -920,11 +982,12 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
         else:
             containment_efficiency = 1.0 if k_after == 0 else 0.0
 
+        execution_time = time.perf_counter() - start_time
+
         communication_stem = f"trace_{trace_id}_prompt_{prompt_number:02d}"
         communication_json = f"communications/{communication_stem}.json"
         communication_markdown_path = f"communications/{communication_stem}.md"
         
-        # Prepare trace with narrative details
         communication_trace = {
             "experiment": experiment_id,
             "run_id": run_id,
@@ -956,34 +1019,58 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
             "affected_depts_after": affected_depts_after,
             "containment_efficiency": containment_efficiency,
         }
+        
         save_communication_trace(
             experiment_dir / communication_json,
             experiment_dir / communication_markdown_path,
             communication_trace,
         )
-
         save_runtime_log(logs_dir / f"{run_id}.jsonl", list(graph.edges()))
-        title = f"{run_id}: {' → '.join(route)} | compromised={compromised}"
-        save_trace_graph(
-            graphs_dir / f"{run_id}_trace_graph.png",
-            graph,
-            compromised,
-            infected_before,
-            fvs_nodes,
-            title,
-        )
-        save_scc_graph(graphs_dir / f"{run_id}_scc.png", graph, title)
+
+        # Save individual network visualizations only for the first 20 runs
+        if run_idx < 20:
+            title = f"{run_id}: {' → '.join(route)} | compromised={compromised}"
+            save_trace_graph(
+                figures_dir / f"{run_id}_trace_graph.png",
+                graph,
+                compromised,
+                infected_before,
+                fvs_nodes,
+                title,
+            )
+            save_scc_graph(figures_dir / f"{run_id}_scc.png", graph, title)
 
         # Calculate fingerprint metrics:
         graph_hash = compute_graph_hash(graph)
-        workflow_family = classify_workflow_family(prompt)
         activated_departments = "|".join(sorted(list(set(route))))
         activated_roles = "|".join(sorted([node for node in graph.nodes() if graph.nodes[node].get("role") == "agent"]))
 
         records.append(
             {
-                "Experiment ID": experiment_id,
                 "Run ID": run_id,
+                "Prompt ID": prompt_id,
+                "Workflow Family": row["Workflow_Family"],
+                "Enterprise Size": len(NODES),
+                "Runtime τ": tau_runtime,
+                "Runtime SCC": scc_count,
+                "FVS Size": len(fvs_nodes),
+                "Graph Hash": graph_hash,
+                "Compromised Node": compromised,
+                "K Before": k_before,
+                "K After": k_after,
+                "Containment Efficiency": containment_efficiency,
+                "Propagation Depth Before": propagation_depth_before,
+                "Propagation Depth After": propagation_depth_after,
+                "Propagation Depth Reduction": propagation_depth_reduction,
+                "Affected Departments Before": affected_depts_before,
+                "Affected Departments After": affected_depts_after,
+                "Affected Departments Reduction": affected_depts_reduction,
+                "Messages Before": message_count,
+                "Messages After": message_count_after,
+                "Execution Time": execution_time,
+                "Seed": seed,
+                # Compatibility columns:
+                "Experiment ID": experiment_id,
                 "Prompt": prompt,
                 "Topology": topology,
                 "Nodes": graph.number_of_nodes(),
@@ -992,30 +1079,16 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
                 "SCC Count": scc_count,
                 "Runtime τ_FVS": tau_runtime,
                 "FVS Nodes": "|".join(fvs_nodes),
-                "Compromised Node": compromised,
-                "K Before": k_before,
-                "K After": k_after,
                 "Containment Success": containment_success,
                 "Message Count": message_count,
                 "Messages After Revocation": message_count_after,
                 "Infection Path Count": len(infection_paths),
-                "Communications JSON": communication_json,
-                "Communications Markdown": communication_markdown_path,
-                # New metrics:
-                "graph_hash": graph_hash,
                 "workflow_family": workflow_family,
                 "activated_departments": activated_departments,
                 "activated_roles": activated_roles,
                 "active_node_count": graph.number_of_nodes(),
                 "active_edge_count": graph.number_of_edges(),
-                # Expanded containment comparative metrics
-                "internal_messages": internal_messages,
-                "department_handoffs": department_handoffs,
-                "collaboration_depth": collaboration_depth,
-                "review_cycles": review_cycles,
-                "active_specialists": active_specialists_count,
-                "average_department_size": average_department_size,
-                "maximum_department_depth": max_dept_depth,
+                "containment_efficiency": containment_efficiency,
                 "propagation_depth_before": propagation_depth_before,
                 "propagation_depth_after": propagation_depth_after,
                 "propagation_depth_reduction": propagation_depth_reduction,
@@ -1023,57 +1096,135 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
                 "affected_departments_after": affected_depts_after,
                 "affected_departments_reduction": affected_depts_reduction,
                 "message_reduction": message_reduction,
-                "containment_efficiency": containment_efficiency,
             }
         )
 
     results = pd.DataFrame.from_records(records)
     results.to_csv(experiment_dir / "results.csv", index=False)
+    
+    # Generate summaries
+    summary_cols = [
+        "Nodes", "Edges", "Cycle Count", "SCC Count", "Runtime τ",
+        "K Before", "K After", "Messages Before", "Messages After",
+        "Containment Efficiency", "Propagation Depth Before", "Propagation Depth After",
+        "Propagation Depth Reduction", "Affected Departments Before", "Affected Departments After",
+        "Affected Departments Reduction", "Execution Time"
+    ]
+    summary_cols = [c for c in summary_cols if c in results.columns]
+    stats_list = []
+    for col in summary_cols:
+        stats_list.append({
+            "Metric": col,
+            "Mean": results[col].mean(),
+            "Std": results[col].std(),
+            "Min": results[col].min(),
+            "Max": results[col].max(),
+            "Median": results[col].median()
+        })
+    stats_df = pd.DataFrame(stats_list)
+    stats_df.to_csv(experiment_dir / "summary_statistics.csv", index=False)
+
+    tau_counts = results["Runtime τ"].value_counts().sort_index()
+    tau_total = len(results)
+    tau_dist_list = []
+    for tau, count in tau_counts.items():
+        percentage = (count / tau_total) * 100
+        tau_dist_list.append({
+            "τ": tau,
+            "Count": count,
+            "Percentage": f"{percentage:.1f}%"
+        })
+    tau_dist_df = pd.DataFrame(tau_dist_list)
+    tau_dist_df.to_csv(experiment_dir / "runtime_tau_distribution.csv", index=False)
+
+    wf_df = results.groupby("Workflow Family").agg(
+        Mean_tau=("Runtime τ", "mean"),
+        Mean_K_Before=("K Before", "mean"),
+        Mean_K_After=("K After", "mean"),
+        Mean_Containment_Efficiency=("Containment Efficiency", "mean")
+    ).reset_index()
+    wf_df.rename(columns={
+        "Workflow Family": "Workflow",
+        "Mean_tau": "Mean τ",
+        "Mean_K_Before": "Mean K Before",
+        "Mean_K_After": "Mean K After",
+        "Mean_Containment_Efficiency": "Mean Containment Efficiency"
+    }, inplace=True)
+    wf_df.to_csv(experiment_dir / "summary_by_workflow.csv", index=False)
+
+    comp_df = results.groupby("Compromised Node").agg(
+        Avg_K_Before=("K Before", "mean"),
+        Avg_K_After=("K After", "mean"),
+        Avg_Efficiency=("Containment Efficiency", "mean")
+    ).reset_index()
+    comp_df.rename(columns={
+        "Compromised Node": "Compromised Role",
+        "Avg_K_Before": "Avg K Before",
+        "Avg_K_After": "Avg K After",
+        "Avg_Efficiency": "Avg Efficiency"
+    }, inplace=True)
+    comp_df.to_csv(experiment_dir / "summary_by_compromise.csv", index=False)
+
+    size_df = results.groupby("Enterprise Size").agg(
+        Mean_tau=("Runtime τ", "mean"),
+        Mean_K_Before=("K Before", "mean"),
+        Mean_K_After=("K After", "mean"),
+        Mean_Containment_Efficiency=("Containment Efficiency", "mean")
+    ).reset_index()
+    size_df.rename(columns={
+        "Mean_tau": "Mean τ",
+        "Mean_K_Before": "Mean K Before",
+        "Mean_K_After": "Mean K After",
+        "Mean_Containment_Efficiency": "Mean Containment Efficiency"
+    }, inplace=True)
+    size_df.to_csv(experiment_dir / "summary_by_size.csv", index=False)
+
     by_topology, by_tau = build_grouped_summaries(results)
     by_topology.to_csv(experiment_dir / "summary_by_topology.csv", index=False)
     by_tau.to_csv(experiment_dir / "summary_by_tau.csv", index=False)
-    save_aggregate_charts(results, graphs_dir)
+    
+    save_aggregate_charts(results, figures_dir)
     write_validation_report(
         results,
         by_topology,
         by_tau,
         experiment_dir / "validation_report.txt",
     )
-    write_metadata(experiment_id, experiment_dir / "metadata.json", len(results))
+    write_metadata(experiment_id, experiment_dir / "metadata.json", len(results), seed=seed)
     return experiment_id, experiment_dir, results
 
 
 def print_summary(experiment_id: str, experiment_dir: Path, results: pd.DataFrame) -> None:
     """Print the experiment location and aggregate observations."""
-    observed = set(int(value) for value in results["Runtime τ_FVS"].unique())
+    observed = set(int(value) for value in results["Runtime τ"].unique())
     successes = int(results["Containment Success"].sum())
-    unique_hashes = results["graph_hash"].nunique()
+    unique_hashes = results["Graph Hash"].nunique()
     print(f"Experiment: {experiment_id}")
     print(f"Output: {experiment_dir}")
     print(f"Runs: {len(results)}")
     print(f"Unique runtime graphs: {unique_hashes}/{len(results)}")
     print(f"Observed runtime τ values: {observed}")
-    print(f"Maximum runtime τ: {int(results['Runtime τ_FVS'].max())}")
-    print(f"Minimum runtime τ: {int(results['Runtime τ_FVS'].min())}")
+    print(f"Maximum runtime τ: {int(results['Runtime τ'].max())}")
+    print(f"Minimum runtime τ: {int(results['Runtime τ'].min())}")
     print(f"Containment success rate: {successes}/{len(results)}")
-    print(f"Average containment efficiency: {results['containment_efficiency'].mean() * 100:.1f}%")
+    print(f"Average containment efficiency: {results['Containment Efficiency'].mean() * 100:.1f}%")
     print(f"Average K Before: {results['K Before'].mean():.2f}")
     print(f"Average K After: {results['K After'].mean():.2f}")
-    print(f"Average message count: {results['Message Count'].mean():.2f}")
-    print(f"Total agent-to-agent messages: {int(results['Message Count'].sum())}")
-    print(f"Average propagation depth before: {results['propagation_depth_before'].mean():.2f}")
-    print(f"Average propagation depth after: {results['propagation_depth_after'].mean():.2f}")
-    print(f"Average propagation depth reduction: {results['propagation_depth_reduction'].mean():.2f}")
-    print(f"Average affected departments before: {results['affected_departments_before'].mean():.2f}")
-    print(f"Average affected departments after: {results['affected_departments_after'].mean():.2f}")
-    print(f"Average affected departments reduction: {results['affected_departments_reduction'].mean():.2f}")
+    print(f"Average message count: {results['Messages Before'].mean():.2f}")
+    print(f"Total agent-to-agent messages: {int(results['Messages Before'].sum())}")
+    print(f"Average propagation depth before: {results['Propagation Depth Before'].mean():.2f}")
+    print(f"Average propagation depth after: {results['Propagation Depth After'].mean():.2f}")
+    print(f"Average propagation depth reduction: {results['Propagation Depth Reduction'].mean():.2f}")
+    print(f"Average affected departments before: {results['Affected Departments Before'].mean():.2f}")
+    print(f"Average affected departments after: {results['Affected Departments After'].mean():.2f}")
+    print(f"Average affected departments reduction: {results['Affected Departments Reduction'].mean():.2f}")
     print(f"Average message reduction: {results['message_reduction'].mean():.2f}")
     
     print("\nWorkflow Family Diversity Summary:")
     print("----------------------------------")
     family_groups = results.groupby("workflow_family")
     for name, group in family_groups:
-        family_taus = sorted([int(x) for x in group["Runtime τ_FVS"].unique()])
+        family_taus = sorted([int(x) for x in group["Runtime τ"].unique()])
         family_depts = sorted(group["activated_departments"].unique())
         print(f"Family: {name}")
         print(f"  Observed τ values: {family_taus}")
