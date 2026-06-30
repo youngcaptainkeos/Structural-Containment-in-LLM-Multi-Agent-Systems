@@ -478,7 +478,7 @@ def draw_department_backgrounds(axis: plt.Axes) -> None:
         axis.add_patch(
             Circle(
                 center,
-                radius=1.55,
+                radius=1.85,
                 facecolor=DEPARTMENT_COLORS[department],
                 edgecolor="#b8b8b8",
                 linewidth=1.0,
@@ -488,7 +488,7 @@ def draw_department_backgrounds(axis: plt.Axes) -> None:
         )
         axis.text(
             center[0],
-            center[1] + 1.72,
+            center[1] + 2.05,
             department,
             ha="center",
             va="center",
@@ -505,50 +505,82 @@ def save_trace_graph(
     infected_nodes: list[str],
     fvs_nodes: list[str],
     title: str,
+    run_id: str = "N/A",
+    topology: str = "N/A",
+    tau_runtime: int = 0,
+    k_before: int = 0,
+    k_after: int = 0,
+    containment_efficiency: float = 1.0,
 ) -> None:
-    """Render compromise state and FVS membership for one run."""
+    """Render compromise state and FVS membership for one run with high-quality visual features."""
+    path_png = Path(path)
+    path_pdf = path_png.with_suffix(".pdf")
+    
     display_graph = ENTERPRISE_GRAPH
     positions = departmental_layout(display_graph)
     active_nodes = set(graph.nodes())
     infected = set(infected_nodes)
     fvs = set(fvs_nodes)
+    
     colors = [
-        "#e74c3c"
-        if node == compromised_node
-        else "#f1c40f"
-        if node in infected
-        else "#2ecc71"
-        if node in active_nodes
+        "#e74c3c" if node == compromised_node
+        else "#f1c40f" if node in infected
+        else "#2ecc71" if node in active_nodes
         else "#d9d9d9"
         for node in display_graph.nodes()
     ]
     borders = ["black" if node in fvs else "#666666" for node in display_graph.nodes()]
     widths = [3.2 if node in fvs else 1.0 for node in display_graph.nodes()]
 
-    figure, axis = plt.subplots(figsize=(13, 10))
+    figure, axis = plt.subplots(figsize=(14, 11))
     draw_department_backgrounds(axis)
+    
     inactive_edges = [
         edge for edge in display_graph.edges() if edge[0] not in active_nodes or edge[1] not in active_nodes
     ]
+    
+    active_edges_list = list(graph.edges())
+    active_internal = []
+    active_cross = []
+    for u, v in active_edges_list:
+        dept_u = graph.nodes[u].get("department")
+        dept_v = graph.nodes[v].get("department")
+        if dept_u == dept_v:
+            active_internal.append((u, v))
+        else:
+            active_cross.append((u, v))
+            
     nx.draw_networkx_edges(
         display_graph,
         positions,
         edgelist=inactive_edges,
         ax=axis,
         edge_color="#d0d0d0",
-        alpha=0.35,
+        alpha=0.25,
         arrows=True,
-        arrowsize=9,
-        width=0.8,
+        arrowsize=8,
+        width=0.7,
     )
     nx.draw_networkx_edges(
         graph,
         positions,
+        edgelist=active_internal,
         ax=axis,
-        edge_color="#606060",
+        edge_color="#111111",
         arrows=True,
         arrowsize=14,
-        width=1.4,
+        width=1.8,
+    )
+    nx.draw_networkx_edges(
+        graph,
+        positions,
+        edgelist=active_cross,
+        ax=axis,
+        edge_color="#333333",
+        style="dashed",
+        arrows=True,
+        arrowsize=14,
+        width=1.8,
     )
     nx.draw_networkx_nodes(
         display_graph,
@@ -559,80 +591,367 @@ def save_trace_graph(
         linewidths=widths,
         node_size=1150,
     )
+    
+    label_positions = {node: (x, y + 0.15) for node, (x, y) in positions.items()}
     nx.draw_networkx_labels(
         display_graph,
-        positions,
+        label_positions,
         ax=axis,
-        font_size=6.5,
+        font_size=7,
         font_family="DejaVu Sans",
+        font_weight="bold",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, boxstyle="round,pad=0.2"),
     )
-    axis.set_title(title)
+    
+    axis.set_title(title, fontsize=12, fontweight="bold")
     axis.axis("off")
+    
+    info_text = (
+        f"Run ID: {run_id}\n"
+        f"Workflow: {topology}\n"
+        f"Compromised Agent: {compromised_node}\n"
+        f"Runtime τ_FVS: {tau_runtime}\n"
+        f"FVS Size: {len(fvs_nodes)}\n"
+        f"Active Agents: {graph.number_of_nodes()}\n"
+        f"Runtime Edges: {graph.number_of_edges()}\n"
+        f"Infected Before: {k_before}\n"
+        f"Infected After: {k_after}\n"
+        f"Containment Efficiency: {containment_efficiency * 100:.1f}%"
+    )
+    axis.text(
+        0.02, 0.98,
+        info_text,
+        transform=axis.transAxes,
+        fontsize=8.5,
+        fontfamily="DejaVu Sans",
+        verticalalignment="top",
+        bbox=dict(
+            boxstyle="round,pad=0.5",
+            facecolor="#ffffff",
+            edgecolor="#cccccc",
+            alpha=0.9,
+            linewidth=1.0,
+        ),
+        zorder=20
+    )
+    
     axis.legend(
         handles=[
             Line2D([], [], marker="o", linestyle="", color="#e74c3c", label="Compromised"),
             Line2D([], [], marker="o", linestyle="", color="#f1c40f", label="Infected"),
-            Line2D([], [], marker="o", linestyle="", color="#2ecc71", label="Active"),
+            Line2D([], [], marker="o", linestyle="", color="#2ecc71", label="Active / Safe"),
             Line2D([], [], marker="o", linestyle="", color="#d9d9d9", label="Inactive"),
             Line2D(
                 [], [], marker="o", linestyle="", markerfacecolor="white",
-                markeredgecolor="black", markeredgewidth=3, label="FVS",
+                markeredgecolor="black", markeredgewidth=3, label="FVS Node",
             ),
-        ]
+        ],
+        loc="lower center",
+        ncol=5,
+        fontsize=9,
+        bbox_to_anchor=(0.5, -0.05)
     )
+    
     figure.tight_layout()
-    figure.savefig(path, dpi=300, bbox_inches="tight")
+    figure.savefig(path_png, dpi=600, bbox_inches="tight")
+    figure.savefig(path_pdf, bbox_inches="tight")
     plt.close(figure)
 
 
 def save_scc_graph(path: Path, graph: nx.DiGraph, title: str) -> None:
-    """Render each strongly connected component with a distinct color."""
+    """Render each strongly connected component with a distinct color, highlighting nontrivial SCCs."""
+    path_png = Path(path)
+    path_pdf = path_png.with_suffix(".pdf")
+    
     components = list(nx.strongly_connected_components(graph))
-    component_by_node = {
-        node: component_index
-        for component_index, component in enumerate(components)
-        for node in component
-    }
-    palette = plt.get_cmap("tab20")
-    colors = [palette(component_by_node.get(node, -1) % 20) if node in graph else "#d9d9d9" for node in ENTERPRISE_GRAPH.nodes()]
+    nontrivial_sccs = [c for c in components if len(c) > 1]
     positions = departmental_layout(ENTERPRISE_GRAPH)
-
-    figure, axis = plt.subplots(figsize=(13, 10))
+    
+    palette = plt.get_cmap("Set2")
+    
+    colors = []
+    borders = []
+    widths = []
+    for node in ENTERPRISE_GRAPH.nodes():
+        in_scc = False
+        scc_idx = -1
+        for idx, scc in enumerate(nontrivial_sccs):
+            if node in scc:
+                in_scc = True
+                scc_idx = idx
+                break
+        
+        if in_scc:
+            colors.append(palette(scc_idx % 8))
+            borders.append("#111111")
+            widths.append(1.5)
+        else:
+            colors.append("#e6e6e6")
+            borders.append("#cccccc")
+            widths.append(1.0)
+            
+    figure, axis = plt.subplots(figsize=(14, 11))
     draw_department_backgrounds(axis)
+    
+    active_edges_list = list(graph.edges())
+    active_internal = []
+    active_cross = []
+    for u, v in active_edges_list:
+        dept_u = graph.nodes[u].get("department")
+        dept_v = graph.nodes[v].get("department")
+        if dept_u == dept_v:
+            active_internal.append((u, v))
+        else:
+            active_cross.append((u, v))
+            
     nx.draw_networkx_edges(
         graph,
         positions,
+        edgelist=active_internal,
         ax=axis,
-        edge_color="#606060",
+        edge_color="#333333",
         arrows=True,
         arrowsize=14,
-        width=1.4,
+        width=1.5,
+    )
+    nx.draw_networkx_edges(
+        graph,
+        positions,
+        edgelist=active_cross,
+        ax=axis,
+        edge_color="#555555",
+        style="dashed",
+        arrows=True,
+        arrowsize=14,
+        width=1.5,
     )
     nx.draw_networkx_nodes(
         ENTERPRISE_GRAPH,
         positions,
         ax=axis,
         node_color=colors,
-        edgecolors="#444444",
+        edgecolors=borders,
+        linewidths=widths,
         node_size=1150,
     )
+    
+    label_positions = {node: (x, y + 0.15) for node, (x, y) in positions.items()}
     nx.draw_networkx_labels(
         ENTERPRISE_GRAPH,
-        positions,
+        label_positions,
         ax=axis,
-        font_size=6.5,
+        font_size=7,
         font_family="DejaVu Sans",
+        font_weight="bold",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, boxstyle="round,pad=0.2"),
     )
-    axis.set_title(f"{title} — Strongly Connected Components")
+    
+    for idx, scc in enumerate(nontrivial_sccs, 1):
+        scc_nodes = list(scc)
+        scc_subgraph = graph.subgraph(scc_nodes)
+        scc_tau, _ = compute_fvs(scc_subgraph)
+        
+        xs = [positions[node][0] for node in scc_nodes]
+        ys = [positions[node][1] for node in scc_nodes]
+        centroid_x = sum(xs) / len(scc_nodes)
+        centroid_y = sum(ys) / len(scc_nodes)
+        
+        scc_text = f"SCC {idx}\nNodes: {len(scc_nodes)}\nτ: {scc_tau}"
+        axis.text(
+            centroid_x, centroid_y + 0.45,
+            scc_text,
+            fontsize=8,
+            fontweight="bold",
+            fontfamily="DejaVu Sans",
+            ha="center",
+            va="center",
+            bbox=dict(
+                boxstyle="round,pad=0.3",
+                facecolor="#ffffff",
+                edgecolor=palette((idx - 1) % 8),
+                alpha=0.95,
+                linewidth=1.5,
+            ),
+            zorder=10
+        )
+        
+    axis.set_title(f"{title} — Strongly Connected Components", fontsize=12, fontweight="bold")
     axis.axis("off")
     figure.tight_layout()
-    figure.savefig(path, dpi=300, bbox_inches="tight")
+    figure.savefig(path_png, dpi=600, bbox_inches="tight")
+    figure.savefig(path_pdf, bbox_inches="tight")
+    plt.close(figure)
+
+
+def save_before_after_comparison(
+    path_png: Path,
+    path_pdf: Path,
+    graph: nx.DiGraph,
+    revoked_graph: nx.DiGraph,
+    compromised_node: str,
+    infected_before: list[str],
+    infected_after: list[str],
+    fvs_nodes: list[str],
+    title: str,
+    run_id: str = "N/A",
+    topology: str = "N/A",
+    tau_runtime: int = 0,
+    k_before: int = 0,
+    k_after: int = 0,
+    containment_efficiency: float = 1.0,
+) -> None:
+    """Render side-by-side comparison of runtime trust graph before and after FVS revocation."""
+    display_graph = ENTERPRISE_GRAPH
+    positions = departmental_layout(display_graph)
+    
+    figure, (axis_left, axis_right) = plt.subplots(1, 2, figsize=(24, 11))
+    
+    # 1. Left Panel: Before FVS Revocation
+    draw_department_backgrounds(axis_left)
+    active_left = set(graph.nodes())
+    inf_left = set(infected_before)
+    fvs = set(fvs_nodes)
+    
+    colors_left = [
+        "#e74c3c" if node == compromised_node
+        else "#f1c40f" if node in inf_left
+        else "#2ecc71" if node in active_left
+        else "#d9d9d9"
+        for node in display_graph.nodes()
+    ]
+    borders_left = ["black" if node in fvs else "#666666" for node in display_graph.nodes()]
+    widths_left = [3.2 if node in fvs else 1.0 for node in display_graph.nodes()]
+    
+    inactive_left_edges = [
+        edge for edge in display_graph.edges() if edge[0] not in active_left or edge[1] not in active_left
+    ]
+    active_left_edges = list(graph.edges())
+    active_left_internal = [e for e in active_left_edges if graph.nodes[e[0]].get("department") == graph.nodes[e[1]].get("department")]
+    active_left_cross = [e for e in active_left_edges if graph.nodes[e[0]].get("department") != graph.nodes[e[1]].get("department")]
+    
+    nx.draw_networkx_edges(
+        display_graph, positions, edgelist=inactive_left_edges, ax=axis_left,
+        edge_color="#d0d0d0", alpha=0.25, arrows=True, arrowsize=8, width=0.7
+    )
+    nx.draw_networkx_edges(
+        graph, positions, edgelist=active_left_internal, ax=axis_left,
+        edge_color="#111111", arrows=True, arrowsize=14, width=1.8
+    )
+    nx.draw_networkx_edges(
+        graph, positions, edgelist=active_left_cross, ax=axis_left,
+        edge_color="#333333", style="dashed", arrows=True, arrowsize=14, width=1.8
+    )
+    nx.draw_networkx_nodes(
+        display_graph, positions, ax=axis_left,
+        node_color=colors_left, edgecolors=borders_left, linewidths=widths_left, node_size=1150
+    )
+    
+    label_positions = {node: (x, y + 0.15) for node, (x, y) in positions.items()}
+    nx.draw_networkx_labels(
+        display_graph, label_positions, ax=axis_left,
+        font_size=7, font_family="DejaVu Sans", font_weight="bold",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, boxstyle="round,pad=0.2")
+    )
+    
+    axis_left.set_title(f"{title} — Before FVS Revocation", fontsize=14, fontweight="bold")
+    axis_left.axis("off")
+    
+    # 2. Right Panel: After FVS Revocation
+    draw_department_backgrounds(axis_right)
+    active_right = set(revoked_graph.nodes())
+    inf_right = set(infected_after)
+    
+    colors_right = [
+        "#e74c3c" if node == compromised_node
+        else "#f1c40f" if node in inf_right
+        else "#2ecc71" if node in active_right
+        else "#d9d9d9"
+        for node in display_graph.nodes()
+    ]
+    borders_right = ["black" if node in fvs else "#666666" for node in display_graph.nodes()]
+    widths_right = [1.5 if node in fvs else 1.0 for node in display_graph.nodes()]
+    
+    inactive_right_edges = [
+        edge for edge in display_graph.edges() if edge[0] not in active_right or edge[1] not in active_right
+    ]
+    active_right_edges = list(revoked_graph.edges())
+    active_right_internal = [e for e in active_right_edges if revoked_graph.nodes[e[0]].get("department") == revoked_graph.nodes[e[1]].get("department")]
+    active_right_cross = [e for e in active_right_edges if revoked_graph.nodes[e[0]].get("department") != revoked_graph.nodes[e[1]].get("department")]
+    
+    nx.draw_networkx_edges(
+        display_graph, positions, edgelist=inactive_right_edges, ax=axis_right,
+        edge_color="#d0d0d0", alpha=0.25, arrows=True, arrowsize=8, width=0.7
+    )
+    nx.draw_networkx_edges(
+        revoked_graph, positions, edgelist=active_right_internal, ax=axis_right,
+        edge_color="#111111", arrows=True, arrowsize=14, width=1.8
+    )
+    nx.draw_networkx_edges(
+        revoked_graph, positions, edgelist=active_right_cross, ax=axis_right,
+        edge_color="#333333", style="dashed", arrows=True, arrowsize=14, width=1.8
+    )
+    nx.draw_networkx_nodes(
+        display_graph, positions, ax=axis_right,
+        node_color=colors_right, edgecolors=borders_right, linewidths=widths_right, node_size=1150
+    )
+    
+    nx.draw_networkx_labels(
+        display_graph, label_positions, ax=axis_right,
+        font_size=7, font_family="DejaVu Sans", font_weight="bold",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, boxstyle="round,pad=0.2")
+    )
+    
+    axis_right.set_title(f"{title} — After FVS Revocation", fontsize=14, fontweight="bold")
+    axis_right.axis("off")
+    
+    # 3. Add Experiment Summary Box to Left Panel
+    info_text = (
+        f"Run ID: {run_id}\n"
+        f"Workflow: {topology}\n"
+        f"Compromised Agent: {compromised_node}\n"
+        f"Runtime τ_FVS: {tau_runtime}\n"
+        f"FVS Size: {len(fvs_nodes)}\n"
+        f"Active Agents: {graph.number_of_nodes()}\n"
+        f"Runtime Edges: {graph.number_of_edges()}\n"
+        f"Infected Before: {k_before}\n"
+        f"Infected After: {k_after}\n"
+        f"Containment Efficiency: {containment_efficiency*100:.1f}%"
+    )
+    axis_left.text(
+        0.02, 0.98,
+        info_text,
+        transform=axis_left.transAxes,
+        fontsize=9.5,
+        fontfamily="DejaVu Sans",
+        verticalalignment="top",
+        bbox=dict(
+            boxstyle="round,pad=0.5",
+            facecolor="#ffffff",
+            edgecolor="#cccccc",
+            alpha=0.95,
+            linewidth=1.0,
+        ),
+        zorder=20
+    )
+    
+    legend_elements = [
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="#e74c3c", markersize=10, label="Compromised"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="#f1c40f", markersize=10, label="Infected"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="#2ecc71", markersize=10, label="Active / Safe"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="#d9d9d9", markersize=10, label="Inactive / Revoked"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="white", markeredgecolor="black", markeredgewidth=3, markersize=10, label="FVS Node"),
+    ]
+    figure.legend(handles=legend_elements, loc="lower center", ncol=5, fontsize=11, frameon=True, bbox_to_anchor=(0.5, 0.02))
+    
+    plt.subplots_adjust(bottom=0.12)
+    figure.savefig(path_png, dpi=600, bbox_inches="tight")
+    figure.savefig(path_pdf, bbox_inches="tight")
     plt.close(figure)
 
 
 def save_aggregate_charts(results: pd.DataFrame, figures_dir: Path) -> None:
-    """Save τ distribution and compromise propagation comparison charts."""
-    # 1. runtime_tau_histogram.png
+    """Save τ distribution and compromise propagation comparison charts in PNG (600 DPI) and PDF formats."""
+    # 1. runtime_tau_histogram.png & .pdf
     tau_min = int(results["Runtime τ"].min())
     tau_max = int(results["Runtime τ"].max())
     bins = [value - 0.5 for value in range(tau_min, tau_max + 2)]
@@ -643,47 +962,52 @@ def save_aggregate_charts(results: pd.DataFrame, figures_dir: Path) -> None:
     axis.set_ylabel("Run Count")
     axis.set_title("Runtime τ Distribution")
     figure.tight_layout()
-    figure.savefig(figures_dir / "runtime_tau_histogram.png", dpi=300)
+    figure.savefig(figures_dir / "runtime_tau_histogram.png", dpi=600)
+    figure.savefig(figures_dir / "runtime_tau_histogram.pdf")
     plt.close(figure)
 
-    # 2. containment_efficiency_histogram.png
+    # 2. containment_efficiency_histogram.png & .pdf
     figure, axis = plt.subplots(figsize=(8, 5))
     axis.hist(results["Containment Efficiency"] * 100, bins=10, edgecolor="black", color="#2ecc71")
     axis.set_xlabel("Containment Efficiency (%)")
     axis.set_ylabel("Run Count")
     axis.set_title("Containment Efficiency Distribution")
     figure.tight_layout()
-    figure.savefig(figures_dir / "containment_efficiency_histogram.png", dpi=300)
+    figure.savefig(figures_dir / "containment_efficiency_histogram.png", dpi=600)
+    figure.savefig(figures_dir / "containment_efficiency_histogram.pdf")
     plt.close(figure)
 
-    # 3. k_before_after_boxplot.png
+    # 3. k_before_after_boxplot.png & .pdf
     figure, axis = plt.subplots(figsize=(8, 5))
     axis.boxplot([results["K Before"], results["K After"]])
     axis.set_xticklabels(["K Before", "K After"])
     axis.set_ylabel("Infected Agents Count")
     axis.set_title("Compromise Footprint Before vs After Revocation")
     figure.tight_layout()
-    figure.savefig(figures_dir / "k_before_after_boxplot.png", dpi=300)
+    figure.savefig(figures_dir / "k_before_after_boxplot.png", dpi=600)
+    figure.savefig(figures_dir / "k_before_after_boxplot.pdf")
     plt.close(figure)
 
-    # 4. runtime_tau_vs_messages.png
+    # 4. runtime_tau_vs_messages.png & .pdf
     figure, axis = plt.subplots(figsize=(8, 5))
     axis.scatter(results["Runtime τ"], results["Messages Before"], alpha=0.6, color="#e74c3c", edgecolor="black")
     axis.set_xlabel("Runtime τ")
     axis.set_ylabel("Messages Before")
     axis.set_title("Runtime τ vs Message Count")
     figure.tight_layout()
-    figure.savefig(figures_dir / "runtime_tau_vs_messages.png", dpi=300)
+    figure.savefig(figures_dir / "runtime_tau_vs_messages.png", dpi=600)
+    figure.savefig(figures_dir / "runtime_tau_vs_messages.pdf")
     plt.close(figure)
 
-    # 5. runtime_tau_vs_kbefore.png
+    # 5. runtime_tau_vs_kbefore.png & .pdf
     figure, axis = plt.subplots(figsize=(8, 5))
     axis.scatter(results["Runtime τ"], results["K Before"], alpha=0.6, color="#9b59b6", edgecolor="black")
     axis.set_xlabel("Runtime τ")
     axis.set_ylabel("K Before (Infected Downstream Agents)")
     axis.set_title("Runtime τ vs Initial Compromise Footprint")
     figure.tight_layout()
-    figure.savefig(figures_dir / "runtime_tau_vs_kbefore.png", dpi=300)
+    figure.savefig(figures_dir / "runtime_tau_vs_kbefore.png", dpi=600)
+    figure.savefig(figures_dir / "runtime_tau_vs_kbefore.pdf")
     plt.close(figure)
 
 
@@ -849,6 +1173,71 @@ def write_validation_report(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def load_enterprise_prompts(path: Path) -> pd.DataFrame:
+    """Robust custom parser for the unquoted enterprise_prompts.csv file."""
+    rows = []
+    valid_depts = {"Research", "Engineering", "Security", "Operations", "Executive"}
+    
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+        
+    for line_idx, line in enumerate(lines[1:], 1):
+        line = line.strip()
+        if not line:
+            continue
+            
+        parts = line.split(",")
+        if len(parts) < 9:
+            continue
+            
+        prompt_id = parts[0]
+        workflow_family = parts[1]
+        difficulty = parts[2]
+        domain = parts[3]
+        
+        idx = 4
+        expected_depts = []
+        while idx < len(parts) and parts[idx] in valid_depts:
+            expected_depts.append(parts[idx])
+            idx += 1
+            
+        count_idx = -1
+        for i in range(idx, len(parts) - 1):
+            if parts[i].isdigit() and parts[i+1] in {"Short", "Medium", "Long"}:
+                count_idx = i
+                break
+                
+        if count_idx == -1:
+            # Fallback search from right
+            for i in range(len(parts) - 2, idx - 1, -1):
+                if parts[i] in {"Short", "Medium", "Long"} and parts[i-1].isdigit():
+                    count_idx = i - 1
+                    break
+                    
+        if count_idx == -1:
+            # Absolute fallback
+            count_idx = len(parts) - 3
+            
+        expected_roles = parts[idx:count_idx]
+        dept_count = int(parts[count_idx]) if parts[count_idx].isdigit() else len(expected_depts)
+        workflow_depth = parts[count_idx+1]
+        prompt = ",".join(parts[count_idx+2:])
+        
+        rows.append({
+            "Prompt_ID": prompt_id,
+            "Workflow_Family": workflow_family,
+            "Difficulty": difficulty,
+            "Enterprise_Domain": domain,
+            "Expected_Departments": ",".join(expected_depts),
+            "Expected_Critical_Roles": ",".join(expected_roles),
+            "Estimated_Department_Count": dept_count,
+            "Estimated_Workflow_Depth": workflow_depth,
+            "Prompt": prompt
+        })
+        
+    return pd.DataFrame(rows)
+
+
 def run_experiment() -> tuple[str, Path, pd.DataFrame]:
     """Execute enterprise workflows from datasets/enterprise_prompts.csv according to experiment_config.json."""
     import time
@@ -882,7 +1271,7 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
     prompts_path = ROOT / "datasets" / "enterprise_prompts.csv"
     if not prompts_path.exists():
         raise FileNotFoundError(f"Prompts dataset not found at: {prompts_path}")
-    prompts_df = pd.read_csv(prompts_path)
+    prompts_df = load_enterprise_prompts(prompts_path)
     num_prompts = len(prompts_df)
     
     write_prompts(experiment_dir / "prompts.txt", prompts_df["Prompt"].tolist())
@@ -1037,8 +1426,31 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
                 infected_before,
                 fvs_nodes,
                 title,
+                run_id=run_id,
+                topology=topology,
+                tau_runtime=tau_runtime,
+                k_before=k_before,
+                k_after=k_after,
+                containment_efficiency=containment_efficiency,
             )
             save_scc_graph(figures_dir / f"{run_id}_scc.png", graph, title)
+            save_before_after_comparison(
+                figures_dir / f"{run_id}_before_after.png",
+                figures_dir / f"{run_id}_before_after.pdf",
+                graph,
+                revoked_graph,
+                compromised,
+                infected_before,
+                infected_after,
+                fvs_nodes,
+                title,
+                run_id=run_id,
+                topology=topology,
+                tau_runtime=tau_runtime,
+                k_before=k_before,
+                k_after=k_after,
+                containment_efficiency=containment_efficiency,
+            )
 
         # Calculate fingerprint metrics:
         graph_hash = compute_graph_hash(graph)
