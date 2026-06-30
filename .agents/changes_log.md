@@ -1,6 +1,6 @@
 # MAS Simulator Changes Log
 
-This file records all architectural and logic changes implemented in the Runtime Trust Graph Containment Framework to extend department collaboration, run before/after evaluations, track comparative containment metrics, and build a reproducible large-scale experimental pipeline.
+This file records all architectural and logic changes implemented in the Runtime Trust Graph Containment Framework to extend department collaboration, run before/after evaluations, track comparative containment metrics, build a reproducible large-scale experimental pipeline, and support publication-quality visualization.
 
 ---
 
@@ -22,10 +22,7 @@ This file records all architectural and logic changes implemented in the Runtime
 
 ## 3. Large-Scale Experimental Pipeline
 - **File**: [experiment_runner.py](file:///c:/PDocuments/ccbd/langchain%20internals/langgraph-fvs-test/experiment_runner.py)
-- **Configuration**: Implemented reading from [experiment_config.json](file:///c:/PDocuments/ccbd/langchain%20internals/langgraph-fvs-test/experiment_config.json) to set number of runs, seed, rotation, and size parameter.
-- **Fixed Prompt Dataset**: Integrates loading prompts dynamically from [enterprise_prompts.csv](file:///c:/PDocuments/ccbd/langchain%20internals/langgraph-fvs-test/datasets/enterprise_prompts.csv), running them in a reproducible sequence.
-- **Systematic Rotation**: Rotates the compromised node deterministically among active nodes across cycles of the prompt list.
-- **Execution Time**: Added timing calculations measuring elapsed time per run in seconds.
+- **Change**: Scaled up to **200 runs** to fully cover the new unquoted CSV dataset `datasets/enterprise_prompts.csv` using a custom robust parsing routine `load_enterprise_prompts`. deterministic rotation and performance measurements are integrated.
 
 ---
 
@@ -40,11 +37,16 @@ This file records all architectural and logic changes implemented in the Runtime
 
 ---
 
-## 5. Publication-Quality Figures
+## 5. Separated Visualization and Numerical Summaries
 - **File**: [experiment_runner.py](file:///c:/PDocuments/ccbd/langchain%20internals/langgraph-fvs-test/experiment_runner.py)
-- **Change**: Automatically creates and outputs five charts under `figures/`:
-  - `runtime_tau_histogram.png`
-  - `containment_efficiency_histogram.png`
-  - `k_before_after_boxplot.png`
-  - `runtime_tau_vs_messages.png`
-  - `runtime_tau_vs_kbefore.png`
+- **Graph Cleanliness**: Removed all statistics/info box overlays from `save_trace_graph` and `save_before_after_comparison` figures to ensure graph layouts remain clean and uncluttered.
+- **Clean Subplot Titles**: Renamed titles in the 4-panel theorem flow to:
+  - `(a) Runtime Trust Graph`
+  - `(b) SCC & Feedback Cycles`
+  - `(c) Before Containment`
+  - `(d) After FVS Containment`
+- **Standalone Executive Summary Table Figures**:
+  - Implemented `save_run_summary_table` to render a separate publication-quality summary table for every run.
+  - The table cleanly summarizes 14 metrics: *Run ID, Workflow, Compromised Agent, Runtime τ_FVS, FVS Size, Active Agents, Active Edges, SCC Count, Largest SCC Size, Infected Before, Infected After, Containment Efficiency, Propagation Depth (Before -> After), and Graph Hash*.
+  - Alternating light-grey row backgrounds and navy header colors are applied for premium legibility.
+  - Exports each summary table as both **600 DPI PNG** and **vector PDF**.

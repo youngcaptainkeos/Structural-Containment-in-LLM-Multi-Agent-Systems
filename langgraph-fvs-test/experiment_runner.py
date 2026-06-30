@@ -606,35 +606,6 @@ def save_trace_graph(
     axis.set_title(title, fontsize=12, fontweight="bold")
     axis.axis("off")
     
-    info_text = (
-        f"Run ID: {run_id}\n"
-        f"Workflow: {topology}\n"
-        f"Compromised Agent: {compromised_node}\n"
-        f"Runtime τ_FVS: {tau_runtime}\n"
-        f"FVS Size: {len(fvs_nodes)}\n"
-        f"Active Agents: {graph.number_of_nodes()}\n"
-        f"Runtime Edges: {graph.number_of_edges()}\n"
-        f"Infected Before: {k_before}\n"
-        f"Infected After: {k_after}\n"
-        f"Containment Efficiency: {containment_efficiency * 100:.1f}%"
-    )
-    axis.text(
-        0.02, 0.98,
-        info_text,
-        transform=axis.transAxes,
-        fontsize=8.5,
-        fontfamily="DejaVu Sans",
-        verticalalignment="top",
-        bbox=dict(
-            boxstyle="round,pad=0.5",
-            facecolor="#ffffff",
-            edgecolor="#cccccc",
-            alpha=0.9,
-            linewidth=1.0,
-        ),
-        zorder=20
-    )
-    
     axis.legend(
         handles=[
             Line2D([], [], marker="o", linestyle="", color="#e74c3c", label="Compromised"),
@@ -800,76 +771,268 @@ def save_before_after_comparison(
     k_after: int = 0,
     containment_efficiency: float = 1.0,
 ) -> None:
-    """Render side-by-side comparison of runtime trust graph before and after FVS revocation."""
+    """Generate a 4-panel figure showing the complete theorem flow from runtime graph to contained state."""
     display_graph = ENTERPRISE_GRAPH
     positions = departmental_layout(display_graph)
-    
-    figure, (axis_left, axis_right) = plt.subplots(1, 2, figsize=(24, 11))
-    
-    # 1. Left Panel: Before FVS Revocation
-    draw_department_backgrounds(axis_left)
-    active_left = set(graph.nodes())
-    inf_left = set(infected_before)
+    active_nodes = set(graph.nodes())
     fvs = set(fvs_nodes)
     
-    colors_left = [
+    active_depts = set(graph.nodes[n].get("department") for n in active_nodes if n in graph)
+    
+    figure, ((ax_a, ax_b), (ax_c, ax_d)) = plt.subplots(2, 2, figsize=(24, 22))
+    
+    def draw_backgrounds(ax):
+        for dept, center in DEPARTMENT_CENTERS.items():
+            is_active = dept in active_depts
+            alpha_val = 0.65 if is_active else 0.20
+            ax.add_patch(
+                Circle(
+                    center,
+                    radius=1.85,
+                    facecolor=DEPARTMENT_COLORS[dept],
+                    edgecolor="#b8b8b8",
+                    linewidth=1.0,
+                    alpha=alpha_val,
+                    zorder=0,
+                )
+            )
+            ax.text(
+                center[0],
+                center[1] + 2.05,
+                dept,
+                ha="center",
+                va="center",
+                fontsize=11,
+                fontweight="bold",
+                color="#333333",
+                alpha=1.0 if is_active else 0.4
+            )
+            
+    label_positions = {node: (x, y + 0.15) for node, (x, y) in positions.items()}
+    
+    def draw_fvs_double_outline(ax, fvs_set, size=950):
+        fvs_list = [n for n in display_graph.nodes() if n in fvs_set]
+        if fvs_list:
+            nx.draw_networkx_nodes(
+                display_graph, positions, nodelist=fvs_list, ax=ax,
+                node_color="black", node_size=size + 350
+            )
+            nx.draw_networkx_nodes(
+                display_graph, positions, nodelist=fvs_list, ax=ax,
+                node_color="white", node_size=size + 150
+            )
+
+    # ----------------------------------------------------
+    # Panel (a): Runtime Trust Graph
+    # ----------------------------------------------------
+    draw_backgrounds(ax_a)
+    
+    colors_a = [
         "#e74c3c" if node == compromised_node
-        else "#f1c40f" if node in inf_left
-        else "#2ecc71" if node in active_left
+        else "#2ecc71" if node in active_nodes
         else "#d9d9d9"
         for node in display_graph.nodes()
     ]
-    borders_left = ["black" if node in fvs else "#666666" for node in display_graph.nodes()]
-    widths_left = [3.2 if node in fvs else 1.0 for node in display_graph.nodes()]
+    borders_a = ["black" if node in fvs else "#666666" for node in display_graph.nodes()]
+    widths_a = [1.0 for _ in display_graph.nodes()]
     
-    inactive_left_edges = [
-        edge for edge in display_graph.edges() if edge[0] not in active_left or edge[1] not in active_left
+    sizes_a = [
+        1350 if node == compromised_node
+        else 1150 if node in fvs
+        else 950
+        for node in display_graph.nodes()
     ]
-    active_left_edges = list(graph.edges())
-    active_left_internal = [e for e in active_left_edges if graph.nodes[e[0]].get("department") == graph.nodes[e[1]].get("department")]
-    active_left_cross = [e for e in active_left_edges if graph.nodes[e[0]].get("department") != graph.nodes[e[1]].get("department")]
+    
+    inactive_edges = [
+        edge for edge in display_graph.edges() if edge[0] not in active_nodes or edge[1] not in active_nodes
+    ]
+    active_edges_list = list(graph.edges())
+    active_internal = [e for e in active_edges_list if graph.nodes[e[0]].get("department") == graph.nodes[e[1]].get("department")]
+    active_cross = [e for e in active_edges_list if graph.nodes[e[0]].get("department") != graph.nodes[e[1]].get("department")]
     
     nx.draw_networkx_edges(
-        display_graph, positions, edgelist=inactive_left_edges, ax=axis_left,
+        display_graph, positions, edgelist=inactive_edges, ax=ax_a,
         edge_color="#d0d0d0", alpha=0.25, arrows=True, arrowsize=8, width=0.7
     )
     nx.draw_networkx_edges(
-        graph, positions, edgelist=active_left_internal, ax=axis_left,
+        graph, positions, edgelist=active_internal, ax=ax_a,
         edge_color="#111111", arrows=True, arrowsize=14, width=1.8
     )
     nx.draw_networkx_edges(
-        graph, positions, edgelist=active_left_cross, ax=axis_left,
-        edge_color="#333333", style="dashed", arrows=True, arrowsize=14, width=1.8
-    )
-    nx.draw_networkx_nodes(
-        display_graph, positions, ax=axis_left,
-        node_color=colors_left, edgecolors=borders_left, linewidths=widths_left, node_size=1150
+        graph, positions, edgelist=active_cross, ax=ax_a,
+        edge_color="#333333", style="dashed", arrows=True, arrowsize=18, width=2.0,
+        connectionstyle="arc3,rad=0.1"
     )
     
-    label_positions = {node: (x, y + 0.15) for node, (x, y) in positions.items()}
+    draw_fvs_double_outline(ax_a, fvs, size=950)
+    nx.draw_networkx_nodes(
+        display_graph, positions, ax=ax_a,
+        node_color=colors_a, edgecolors=borders_a, linewidths=widths_a, node_size=sizes_a
+    )
     nx.draw_networkx_labels(
-        display_graph, label_positions, ax=axis_left,
+        display_graph, label_positions, ax=ax_a,
+        font_size=7, font_family="DejaVu Sans", font_weight="bold",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, boxstyle="round,pad=0.2")
+    )
+    ax_a.set_title("(a) Runtime Trust Graph", fontsize=14, fontweight="bold", pad=10)
+    ax_a.axis("off")
+    
+    # ----------------------------------------------------
+    # Panel (b): Strongly Connected Components (SCC)
+    # ----------------------------------------------------
+    draw_backgrounds(ax_b)
+    components = list(nx.strongly_connected_components(graph))
+    nontrivial_sccs = [c for c in components if len(c) > 1]
+    
+    palette = plt.get_cmap("Set2")
+    colors_b = []
+    borders_b = []
+    sizes_b = []
+    for node in display_graph.nodes():
+        in_scc = False
+        scc_idx = -1
+        for idx, scc in enumerate(nontrivial_sccs):
+            if node in scc:
+                in_scc = True
+                scc_idx = idx
+                break
+        if in_scc:
+            colors_b.append(palette(scc_idx % 8))
+            borders_b.append("#111111")
+            sizes_b.append(1200)
+        else:
+            colors_b.append("#e6e6e6")
+            borders_b.append("#cccccc")
+            sizes_b.append(950)
+            
+    nx.draw_networkx_edges(
+        graph, positions, edgelist=active_internal, ax=ax_b,
+        edge_color="#333333", arrows=True, arrowsize=14, width=1.5
+    )
+    nx.draw_networkx_edges(
+        graph, positions, edgelist=active_cross, ax=ax_b,
+        edge_color="#555555", style="dashed", arrows=True, arrowsize=18, width=1.5,
+        connectionstyle="arc3,rad=0.1"
+    )
+    nx.draw_networkx_nodes(
+        display_graph, positions, ax=ax_b,
+        node_color=colors_b, edgecolors=borders_b, node_size=sizes_b
+    )
+    nx.draw_networkx_labels(
+        display_graph, label_positions, ax=ax_b,
         font_size=7, font_family="DejaVu Sans", font_weight="bold",
         bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, boxstyle="round,pad=0.2")
     )
     
-    axis_left.set_title(f"{title} — Before FVS Revocation", fontsize=14, fontweight="bold")
-    axis_left.axis("off")
+    for idx, scc in enumerate(nontrivial_sccs, 1):
+        scc_nodes = list(scc)
+        scc_subgraph = graph.subgraph(scc_nodes)
+        scc_tau, _ = compute_fvs(scc_subgraph)
+        xs = [positions[node][0] for node in scc_nodes]
+        ys = [positions[node][1] for node in scc_nodes]
+        centroid_x = sum(xs) / len(scc_nodes)
+        centroid_y = sum(ys) / len(scc_nodes)
+        
+        scc_text = f"SCC {idx}\nNodes: {len(scc_nodes)}\nτ: {scc_tau}"
+        ax_b.text(
+            centroid_x, centroid_y + 0.45,
+            scc_text,
+            fontsize=8,
+            fontweight="bold",
+            fontfamily="DejaVu Sans",
+            ha="center",
+            va="center",
+            bbox=dict(
+                boxstyle="round,pad=0.3",
+                facecolor="#ffffff",
+                edgecolor=palette((idx - 1) % 8),
+                alpha=0.95,
+                linewidth=1.5,
+            ),
+            zorder=10
+        )
+    ax_b.set_title("(b) SCC & Feedback Cycles", fontsize=14, fontweight="bold", pad=10)
+    ax_b.axis("off")
     
-    # 2. Right Panel: After FVS Revocation
-    draw_department_backgrounds(axis_right)
-    active_right = set(revoked_graph.nodes())
-    inf_right = set(infected_after)
+    # ----------------------------------------------------
+    # Panel (c): Before FVS Revocation
+    # ----------------------------------------------------
+    draw_backgrounds(ax_c)
+    inf_left = set(infected_before)
     
-    colors_right = [
+    colors_c = [
         "#e74c3c" if node == compromised_node
-        else "#f1c40f" if node in inf_right
-        else "#2ecc71" if node in active_right
+        else "#f1c40f" if node in inf_left
+        else "#2ecc71" if node in active_nodes
         else "#d9d9d9"
         for node in display_graph.nodes()
     ]
-    borders_right = ["black" if node in fvs else "#666666" for node in display_graph.nodes()]
-    widths_right = [1.5 if node in fvs else 1.0 for node in display_graph.nodes()]
+    borders_c = ["black" if node in fvs else "#666666" for node in display_graph.nodes()]
+    
+    sizes_c = [
+        1350 if node == compromised_node
+        else 1200 if node in inf_left
+        else 1150 if node in fvs
+        else 950
+        for node in display_graph.nodes()
+    ]
+    
+    nx.draw_networkx_edges(
+        display_graph, positions, edgelist=inactive_edges, ax=ax_c,
+        edge_color="#d0d0d0", alpha=0.25, arrows=True, arrowsize=8, width=0.7
+    )
+    nx.draw_networkx_edges(
+        graph, positions, edgelist=active_internal, ax=ax_c,
+        edge_color="#111111", arrows=True, arrowsize=14, width=1.8
+    )
+    nx.draw_networkx_edges(
+        graph, positions, edgelist=active_cross, ax=ax_c,
+        edge_color="#333333", style="dashed", arrows=True, arrowsize=18, width=2.0,
+        connectionstyle="arc3,rad=0.1"
+    )
+    
+    draw_fvs_double_outline(ax_c, fvs, size=950)
+    nx.draw_networkx_nodes(
+        display_graph, positions, ax=ax_c,
+        node_color=colors_c, edgecolors=borders_c, node_size=sizes_c
+    )
+    nx.draw_networkx_labels(
+        display_graph, label_positions, ax=ax_c,
+        font_size=7, font_family="DejaVu Sans", font_weight="bold",
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, boxstyle="round,pad=0.2")
+    )
+    ax_c.set_title("(c) Before Containment", fontsize=14, fontweight="bold", pad=10)
+    ax_c.axis("off")
+    
+    # ----------------------------------------------------
+    # Panel (d): After FVS-Based Containment
+    # ----------------------------------------------------
+    draw_backgrounds(ax_d)
+    active_right = set(revoked_graph.nodes())
+    inf_right = set(infected_after)
+    
+    colors_d = []
+    alphas_d = []
+    sizes_d = []
+    for node in display_graph.nodes():
+        if node == compromised_node:
+            colors_d.append("#e74c3c")
+            alphas_d.append(1.0)
+            sizes_d.append(1350)
+        elif node in inf_right:
+            colors_d.append("#f1c40f")
+            alphas_d.append(1.0)
+            sizes_d.append(1200)
+        elif node in active_right:
+            colors_d.append("#2ecc71")
+            alphas_d.append(0.35)
+            sizes_d.append(950)
+        else:
+            colors_d.append("#d9d9d9")
+            alphas_d.append(0.20)
+            sizes_d.append(950)
+            
+    borders_d = ["black" if node in fvs else "#666666" for node in display_graph.nodes()]
     
     inactive_right_edges = [
         edge for edge in display_graph.edges() if edge[0] not in active_right or edge[1] not in active_right
@@ -879,74 +1042,139 @@ def save_before_after_comparison(
     active_right_cross = [e for e in active_right_edges if revoked_graph.nodes[e[0]].get("department") != revoked_graph.nodes[e[1]].get("department")]
     
     nx.draw_networkx_edges(
-        display_graph, positions, edgelist=inactive_right_edges, ax=axis_right,
-        edge_color="#d0d0d0", alpha=0.25, arrows=True, arrowsize=8, width=0.7
+        display_graph, positions, edgelist=inactive_right_edges, ax=ax_d,
+        edge_color="#d0d0d0", alpha=0.15, arrows=True, arrowsize=8, width=0.7
     )
     nx.draw_networkx_edges(
-        revoked_graph, positions, edgelist=active_right_internal, ax=axis_right,
-        edge_color="#111111", arrows=True, arrowsize=14, width=1.8
+        revoked_graph, positions, edgelist=active_right_internal, ax=ax_d,
+        edge_color="#111111", alpha=0.9, arrows=True, arrowsize=14, width=1.8
     )
     nx.draw_networkx_edges(
-        revoked_graph, positions, edgelist=active_right_cross, ax=axis_right,
-        edge_color="#333333", style="dashed", arrows=True, arrowsize=14, width=1.8
-    )
-    nx.draw_networkx_nodes(
-        display_graph, positions, ax=axis_right,
-        node_color=colors_right, edgecolors=borders_right, linewidths=widths_right, node_size=1150
+        revoked_graph, positions, edgelist=active_right_cross, ax=ax_d,
+        edge_color="#333333", style="dashed", alpha=0.9, arrows=True, arrowsize=18, width=2.0,
+        connectionstyle="arc3,rad=0.1"
     )
     
+    for node_idx, node in enumerate(display_graph.nodes()):
+        if node in fvs:
+            nx.draw_networkx_nodes(
+                display_graph, positions, nodelist=[node], ax=ax_d,
+                node_color="black", node_size=sizes_d[node_idx] + 350,
+                alpha=alphas_d[node_idx]
+            )
+            nx.draw_networkx_nodes(
+                display_graph, positions, nodelist=[node], ax=ax_d,
+                node_color="white", node_size=sizes_d[node_idx] + 150,
+                alpha=alphas_d[node_idx]
+            )
+            
+        nx.draw_networkx_nodes(
+            display_graph, positions, nodelist=[node], ax=ax_d,
+            node_color=[colors_d[node_idx]], edgecolors=[borders_d[node_idx]],
+            node_size=[sizes_d[node_idx]], alpha=alphas_d[node_idx]
+        )
+        
     nx.draw_networkx_labels(
-        display_graph, label_positions, ax=axis_right,
+        display_graph, label_positions, ax=ax_d,
         font_size=7, font_family="DejaVu Sans", font_weight="bold",
-        bbox=dict(facecolor="white", edgecolor="none", alpha=0.7, boxstyle="round,pad=0.2")
+        bbox=dict(facecolor="white", edgecolor="none", alpha=0.6, boxstyle="round,pad=0.2")
     )
-    
-    axis_right.set_title(f"{title} — After FVS Revocation", fontsize=14, fontweight="bold")
-    axis_right.axis("off")
-    
-    # 3. Add Experiment Summary Box to Left Panel
-    info_text = (
-        f"Run ID: {run_id}\n"
-        f"Workflow: {topology}\n"
-        f"Compromised Agent: {compromised_node}\n"
-        f"Runtime τ_FVS: {tau_runtime}\n"
-        f"FVS Size: {len(fvs_nodes)}\n"
-        f"Active Agents: {graph.number_of_nodes()}\n"
-        f"Runtime Edges: {graph.number_of_edges()}\n"
-        f"Infected Before: {k_before}\n"
-        f"Infected After: {k_after}\n"
-        f"Containment Efficiency: {containment_efficiency*100:.1f}%"
-    )
-    axis_left.text(
-        0.02, 0.98,
-        info_text,
-        transform=axis_left.transAxes,
-        fontsize=9.5,
-        fontfamily="DejaVu Sans",
-        verticalalignment="top",
-        bbox=dict(
-            boxstyle="round,pad=0.5",
-            facecolor="#ffffff",
-            edgecolor="#cccccc",
-            alpha=0.95,
-            linewidth=1.0,
-        ),
-        zorder=20
-    )
+    ax_d.set_title("(d) After FVS Containment", fontsize=14, fontweight="bold", pad=10)
+    ax_d.axis("off")
     
     legend_elements = [
         Line2D([0], [0], marker="o", color="w", markerfacecolor="#e74c3c", markersize=10, label="Compromised"),
         Line2D([0], [0], marker="o", color="w", markerfacecolor="#f1c40f", markersize=10, label="Infected"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor="white", markeredgecolor="black", markeredgewidth=3, markersize=10, label="FVS Node (Revocation target)"),
         Line2D([0], [0], marker="o", color="w", markerfacecolor="#2ecc71", markersize=10, label="Active / Safe"),
         Line2D([0], [0], marker="o", color="w", markerfacecolor="#d9d9d9", markersize=10, label="Inactive / Revoked"),
-        Line2D([0], [0], marker="o", color="w", markerfacecolor="white", markeredgecolor="black", markeredgewidth=3, markersize=10, label="FVS Node"),
     ]
-    figure.legend(handles=legend_elements, loc="lower center", ncol=5, fontsize=11, frameon=True, bbox_to_anchor=(0.5, 0.02))
+    figure.legend(handles=legend_elements, loc="lower center", ncol=5, fontsize=12, frameon=True, bbox_to_anchor=(0.5, 0.02))
     
-    plt.subplots_adjust(bottom=0.12)
+    figure.suptitle(f"FVS Containment Theorem Flow — {run_id} ({topology})", fontsize=18, fontweight="bold", y=0.96)
+    
+    plt.subplots_adjust(bottom=0.08, top=0.90, wspace=0.15, hspace=0.15)
     figure.savefig(path_png, dpi=600, bbox_inches="tight")
     figure.savefig(path_pdf, bbox_inches="tight")
     plt.close(figure)
+
+
+def save_run_summary_table(
+    path_png: Path,
+    path_pdf: Path,
+    graph: nx.DiGraph,
+    compromised_node: str,
+    fvs_nodes: list[str],
+    run_id: str,
+    topology: str,
+    tau_runtime: int,
+    scc_count: int,
+    components: list[set[str]],
+    k_before: int,
+    k_after: int,
+    containment_efficiency: float,
+    depth_before: int,
+    depth_after: int,
+    graph_hash: str,
+) -> None:
+    """Render a separate publication-quality summary table figure for a run."""
+    fig, ax = plt.subplots(figsize=(10, 6.5))
+    ax.axis("off")
+    
+    largest_scc = max([len(c) for c in components]) if components else 0
+    
+    table_data = [
+        ["Experiment Metric", "Observed Simulation Value"],
+        ["Run ID", run_id],
+        ["Workflow", topology],
+        ["Compromised Agent", compromised_node],
+        ["Runtime τ_FVS", str(tau_runtime)],
+        ["FVS Size", str(len(fvs_nodes))],
+        ["Active Agents", str(graph.number_of_nodes())],
+        ["Active Edges", str(graph.number_of_edges())],
+        ["SCC Count", str(scc_count)],
+        ["Largest SCC Size", str(largest_scc)],
+        ["Infected Before", str(k_before)],
+        ["Infected After", str(k_after)],
+        ["Containment Efficiency", f"{containment_efficiency * 100:.1f}%"],
+        ["Propagation Depth", f"{depth_before} -> {depth_after} (Reduction: {depth_before - depth_after} hops)"],
+        ["Graph Hash", graph_hash],
+    ]
+    
+    table = ax.table(
+        cellText=table_data[1:],
+        colLabels=table_data[0],
+        loc="center",
+        cellLoc="left",
+        colWidths=[0.38, 0.62],
+    )
+    
+    table.auto_set_font_size(False)
+    table.set_fontsize(10.5)
+    table.scale(1.2, 1.6)
+    
+    for (row_idx, col_idx), cell in table.get_celld().items():
+        if row_idx == 0:
+            cell.set_text_props(weight="bold", color="white", fontsize=11)
+            cell.set_facecolor("#2c3e50")
+            cell.set_edgecolor("#2c3e50")
+        else:
+            if row_idx % 2 == 0:
+                cell.set_facecolor("#f8f9fa")
+            else:
+                cell.set_facecolor("#ffffff")
+            cell.set_edgecolor("#e9ecef")
+            
+            if table_data[row_idx][0] == "Containment Efficiency":
+                cell.set_text_props(weight="bold", color="#27ae60" if k_after == 0 else "#e67e22")
+            if table_data[row_idx][0] == "Run ID":
+                cell.set_text_props(weight="bold")
+                 
+    fig.suptitle(f"Containment Simulation Executive Summary — {run_id}", fontsize=14, fontweight="bold", y=0.96)
+    
+    fig.savefig(path_png, dpi=600, bbox_inches="tight")
+    fig.savefig(path_pdf, bbox_inches="tight")
+    plt.close(fig)
 
 
 def save_aggregate_charts(results: pd.DataFrame, figures_dir: Path) -> None:
@@ -1416,6 +1644,11 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
         )
         save_runtime_log(logs_dir / f"{run_id}.jsonl", list(graph.edges()))
 
+        # Calculate fingerprint metrics:
+        graph_hash = compute_graph_hash(graph)
+        activated_departments = "|".join(sorted(list(set(route))))
+        activated_roles = "|".join(sorted([node for node in graph.nodes() if graph.nodes[node].get("role") == "agent"]))
+
         # Save individual network visualizations only for the first 20 runs
         if run_idx < 20:
             title = f"{run_id}: {' → '.join(route)} | compromised={compromised}"
@@ -1451,11 +1684,27 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
                 k_after=k_after,
                 containment_efficiency=containment_efficiency,
             )
-
-        # Calculate fingerprint metrics:
-        graph_hash = compute_graph_hash(graph)
-        activated_departments = "|".join(sorted(list(set(route))))
-        activated_roles = "|".join(sorted([node for node in graph.nodes() if graph.nodes[node].get("role") == "agent"]))
+            
+            # Generate standalone executive summary table figure
+            components = list(nx.strongly_connected_components(graph))
+            save_run_summary_table(
+                path_png=figures_dir / f"{run_id}_summary.png",
+                path_pdf=figures_dir / f"{run_id}_summary.pdf",
+                graph=graph,
+                compromised_node=compromised,
+                fvs_nodes=fvs_nodes,
+                run_id=run_id,
+                topology=topology,
+                tau_runtime=tau_runtime,
+                scc_count=scc_count,
+                components=components,
+                k_before=k_before,
+                k_after=k_after,
+                containment_efficiency=containment_efficiency,
+                depth_before=depth_before,
+                depth_after=depth_after,
+                graph_hash=graph_hash,
+            )
 
         records.append(
             {
