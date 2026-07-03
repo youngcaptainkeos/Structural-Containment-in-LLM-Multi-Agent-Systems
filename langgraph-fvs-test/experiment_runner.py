@@ -3252,7 +3252,7 @@ def run_scc_complexity_analysis(
     import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
-    from scipy.stats import kruskal, tukey_hsd, t
+    from scipy.stats import t
     
     # 1. Convert policy_records to DataFrame
     all_rows = []
@@ -3263,7 +3263,7 @@ def run_scc_complexity_analysis(
             all_rows.append(row)
     df = pd.DataFrame(all_rows)
     
-    # Determine buckets
+    # Determine structural-complexity buckets from the already-recorded runtime graphs.
     def get_scc_count_bucket(c):
         if c == 1: return "1"
         if c == 2: return "2"
@@ -3272,11 +3272,10 @@ def run_scc_complexity_analysis(
         return "5+"
         
     def get_largest_scc_bucket(s):
-        if s <= 1: return "0-1"
-        if s <= 4: return "2-4"
-        if s <= 8: return "5-8"
-        if s <= 12: return "9-12"
-        return "13+"
+        if s <= 2: return "1-2"
+        if s <= 5: return "3-5"
+        if s <= 8: return "6-8"
+        return "9+"
         
     df["SCC_Count_Bucket"] = df["Initial SCC Count"].apply(get_scc_count_bucket)
     df["Largest_SCC_Bucket"] = df["Initial Largest SCC Size"].apply(get_largest_scc_bucket)
@@ -3284,10 +3283,16 @@ def run_scc_complexity_analysis(
     # Write full dataset with buckets for user inspection
     df.to_csv(experiment_dir / "scc_stratified_raw_data.csv", index=False)
     
-    # Helper to calculate aggregate statistics
-    def summarize_by_group(groupby_col):
+    # Helper to calculate aggregate statistics with Student-t 95% confidence intervals.
+    def summarize_by_group(groupby_col, bucket_order):
         summary_rows = []
-        grouped = df.groupby([groupby_col, "Policy"])
+        grouped = df.groupby([groupby_col, "Policy"], sort=False)
+        metric_map = {
+            "Containment Ratio": "Mean Containment Ratio",
+            "Infected After": "Mean Infected After",
+            "Propagation Depth After": "Mean Propagation Depth After",
+            "FVS Size": "Mean Revocation Cost",
+        }
         for (bucket_val, policy_val), group_df in grouped:
             n = len(group_df)
             row = {
@@ -3295,108 +3300,42 @@ def run_scc_complexity_analysis(
                 "Policy": policy_val,
                 "Sample Size": n
             }
-            for metric in ["Containment Ratio", "Infected After", "Propagation Depth After"]:
+            for metric, mean_col in metric_map.items():
                 vals = group_df[metric].to_numpy()
                 mean = np.mean(vals)
-                median = np.median(vals)
                 std = np.std(vals, ddof=1) if n > 1 else 0.0
-                min_val = np.min(vals) if n > 0 else 0.0
-                max_val = np.max(vals) if n > 0 else 0.0
-                
-                # CI
                 t_crit = t.ppf(0.975, df=n-1) if n > 1 else 1.96
                 margin = t_crit * (std / np.sqrt(n)) if n > 0 else 0.0
                 ci_lower = mean - margin
                 ci_upper = mean + margin
                 
-                row[f"{metric}_Mean"] = mean
-                row[f"{metric}_Median"] = median
-                row[f"{metric}_Std"] = std
-                row[f"{metric}_95CI"] = f"[{ci_lower:.3f}, {ci_upper:.3f}]"
-                row[f"{metric}_Min"] = min_val
-                row[f"{metric}_Max"] = max_val
+                row[mean_col] = mean
+                row[f"{metric} Std"] = std
+                row[f"{metric} 95% CI Lower"] = ci_lower
+                row[f"{metric} 95% CI Upper"] = ci_upper
+                row[f"{metric} 95% CI"] = f"[{ci_lower:.4f}, {ci_upper:.4f}]"
                 
             summary_rows.append(row)
-        return pd.DataFrame(summary_rows)
+        summary = pd.DataFrame(summary_rows)
+        summary["_bucket_order"] = summary[groupby_col].map({bucket: idx for idx, bucket in enumerate(bucket_order)})
+        summary["_policy_order"] = summary["Policy"].map({policy: idx for idx, policy in enumerate(policy_records.keys())})
+        summary = summary.sort_values(["_bucket_order", "_policy_order"]).drop(columns=["_bucket_order", "_policy_order"])
+        return summary
 
-    scc_count_summary = summarize_by_group("SCC_Count_Bucket")
+    buckets_list = ["1", "2", "3", "4", "5+"]
+    largest_scc_buckets_list = ["1-2", "3-5", "6-8", "9+"]
+
+    scc_count_summary = summarize_by_group("SCC_Count_Bucket", buckets_list)
+    scc_count_summary.to_csv(experiment_dir / "scc_bucket_summary.csv", index=False)
+    # Backward-compatible output retained; not used as the canonical publication table.
     scc_count_summary.to_csv(experiment_dir / "scc_count_stratified_summary.csv", index=False)
     
-    largest_scc_summary = summarize_by_group("Largest_SCC_Bucket")
+    largest_scc_summary = summarize_by_group("Largest_SCC_Bucket", largest_scc_buckets_list)
+    largest_scc_summary.to_csv(experiment_dir / "largest_scc_summary.csv", index=False)
+    # Backward-compatible output retained; not used as the canonical publication table.
     largest_scc_summary.to_csv(experiment_dir / "largest_scc_stratified_summary.csv", index=False)
     
-    # 2. Statistical Analysis Report
-    report_lines = [
-        "# SCC Complexity Stratified Statistical Validation",
-        "",
-        "This report contains hypothesis testing, variance analysis, and regression modelling ",
-        "to validate the theoretical FVS containment guarantees under varying topological complexities.",
-        ""
-    ]
-    
-    # Kruskal-Wallis per SCC Count bucket
-    report_lines.append("## Part 1: Kruskal-Wallis Analysis of Variance per SCC Count Bucket")
-    report_lines.append("")
-    
-    buckets_list = ["1", "2", "3", "4", "5+"]
-    for bucket in buckets_list:
-        sub_df = df[df["SCC_Count_Bucket"] == bucket]
-        if sub_df.empty:
-            continue
-            
-        report_lines.append(f"### SCC Count Bucket: {bucket}")
-        report_lines.append("")
-        
-        # Extract containment ratios per policy
-        policy_groups = {}
-        for p in policy_records.keys():
-            p_vals = sub_df[sub_df["Policy"] == p]["Containment Ratio"].to_numpy()
-            if len(p_vals) > 0:
-                policy_groups[p] = p_vals
-                
-        if len(policy_groups) > 1:
-            # Kruskal-Wallis
-            try:
-                kw_stat, kw_p = kruskal(*policy_groups.values())
-            except Exception as e:
-                kw_stat, kw_p = float('nan'), float('nan')
-                
-            report_lines.append(f"- **Kruskal-Wallis H-test**: $H = {kw_stat:.4f}$, $p = {kw_p:.3g}$")
-            report_lines.append("")
-            
-            # Tukey HSD comparison for Runtime FVS
-            if "runtime_fvs" in policy_groups and len(policy_groups) > 1:
-                p_keys = list(policy_groups.keys())
-                p_arrays = [policy_groups[k] for k in p_keys]
-                try:
-                    res = tukey_hsd(*p_arrays)
-                    fvs_idx = p_keys.index("runtime_fvs")
-                    
-                    report_lines.append("#### Tukey HSD Pairwise Comparisons (vs. Runtime FVS):")
-                    report_lines.append("")
-                    report_lines.append("| Baseline | Mean Difference | p-value | Significant |")
-                    report_lines.append("| --- | --- | --- | --- |")
-                    
-                    for other_idx, other_key in enumerate(p_keys):
-                        if other_key == "runtime_fvs":
-                            continue
-                        mean_diff = np.mean(policy_groups["runtime_fvs"]) - np.mean(policy_groups[other_key])
-                        p_val = res.pvalue[other_idx, fvs_idx]
-                        sig = "Yes" if p_val < 0.05 else "No"
-                        report_lines.append(f"| {other_key.replace('_', ' ').title()} | {mean_diff:.4f} | {p_val:.3g} | {sig} |")
-                except Exception as e:
-                    report_lines.append(f"*Tukey HSD post-hoc test could not be calculated: {str(e)}*")
-            report_lines.append("")
-            
-    # 3. Interaction Regression Analysis
-    report_lines.append("## Part 2: OLS Interaction Regression Analysis")
-    report_lines.append("")
-    report_lines.append("Model specification:")
-    report_lines.append("$$\\text{Containment Ratio} = \\beta_0 + \\beta_1 \\times \\text{Initial SCC Count} + \\sum \\gamma_i D_i + \\sum \\delta_i (D_i \\times \\text{Initial SCC Count}) + \\epsilon$$")
-    report_lines.append("where $D_i$ are dummy variables for other policies (Runtime FVS is the reference category).")
-    report_lines.append("")
-    
-    # Prepare OLS matrix
+    # Interaction regression: Runtime FVS is the reference policy.
     policies = sorted(list(policy_records.keys()))
     if "runtime_fvs" in policies:
         policies.remove("runtime_fvs") # runtime_fvs is reference
@@ -3433,59 +3372,61 @@ def run_scc_complexity_analysis(
     X = np.column_stack(cols)
     p_num = X.shape[1]
     
+    regression_rows = []
+    r_sq = float("nan")
+    df_resid = 0
+    regression_error = ""
     if N > p_num:
         try:
-            # Solve OLS
             beta, residuals, rank, s = np.linalg.lstsq(X, y, rcond=None)
-            
-            # Compute stats
             y_pred = X @ beta
             resids = y - y_pred
             ssr = np.sum(resids**2)
             df_resid = N - p_num
             s2 = ssr / df_resid if df_resid > 0 else 0.0
-            
-            # Covariance matrix of coefficients
-            cov_beta = s2 * np.linalg.inv(X.T @ X)
+            cov_beta = s2 * np.linalg.pinv(X.T @ X)
             se_beta = np.sqrt(np.diag(cov_beta))
-            
             t_stats = beta / se_beta
             p_vals = 2 * t.sf(np.abs(t_stats), df=df_resid)
-            
-            # Compute R-squared
             y_mean = np.mean(y)
             sst = np.sum((y - y_mean)**2)
             r_sq = 1.0 - (ssr / sst) if sst > 0 else 0.0
-            
-            report_lines.append(f"- **Number of Observations**: {N}")
-            report_lines.append(f"- **Residual Degrees of Freedom**: {df_resid}")
-            report_lines.append(f"- **R-squared**: {r_sq:.4f}")
-            report_lines.append("")
-            report_lines.append("| Variable | Coefficient | Std Error | t-statistic | p-value | Significant |")
-            report_lines.append("| --- | --- | --- | --- | --- | --- |")
-            
+
             for idx, name in enumerate(col_names):
-                coeff = beta[idx]
-                se = se_beta[idx]
-                t_val = t_stats[idx]
-                p_v = p_vals[idx]
-                sig = "Yes" if p_v < 0.05 else "No"
-                label = name.replace("Dummy_", "").replace("Interaction_", "").replace("_", " ").title()
-                report_lines.append(f"| {label} | {coeff:.4f} | {se:.4f} | {t_val:.3f} | {p_v:.3g} | {sig} |")
-                
-            report_lines.append("")
-            report_lines.append("### Key Interpretation")
-            report_lines.append("- **Intercept**: Represents the baseline containment ratio of **Runtime FVS** when the graph has 0 SCCs.")
-            report_lines.append("- **Initial SCC Count**: Measures how the containment ratio of the reference policy (Runtime FVS) changes per additional SCC.")
-            report_lines.append("- **Interaction terms**: Measure the relative degradation of baseline policies compared to Runtime FVS as the SCC count increases. A significant negative interaction coefficient indicates that increasing complexity statistically degrades the baseline policy's containment ratio faster than Runtime FVS.")
+                regression_rows.append({
+                    "Variable": name,
+                    "Coefficient": beta[idx],
+                    "Std Error": se_beta[idx],
+                    "t-statistic": t_stats[idx],
+                    "p-value": p_vals[idx],
+                    "Significant": p_vals[idx] < 0.05,
+                    "Reference Policy": "runtime_fvs",
+                    "Observations": N,
+                    "Residual DF": df_resid,
+                    "R-squared": r_sq,
+                })
         except Exception as e:
-            report_lines.append(f"*OLS Regression could not be calculated: {str(e)}*")
+            regression_error = str(e)
     else:
-        report_lines.append("*Not enough data points to run interaction OLS regression.*")
-        
-    (experiment_dir / "scc_stratified_significance_report.md").write_text("\n".join(report_lines) + "\n", encoding="utf-8")
+        regression_error = "Not enough data points to run interaction OLS regression."
+
+    regression_df = pd.DataFrame(regression_rows)
+    if regression_df.empty:
+        regression_df = pd.DataFrame([{
+            "Variable": "ERROR",
+            "Coefficient": np.nan,
+            "Std Error": np.nan,
+            "t-statistic": np.nan,
+            "p-value": np.nan,
+            "Significant": False,
+            "Reference Policy": "runtime_fvs",
+            "Observations": N,
+            "Residual DF": df_resid,
+            "R-squared": r_sq,
+            "Error": regression_error,
+        }])
+    regression_df.to_csv(experiment_dir / "scc_regression_results.csv", index=False)
     
-    # 4. Generate the 3 Stratification Plots
     color_map = {
         "runtime_fvs": "#2E8B57",             # deep green
         "static_fvs": "#1C3D5A",              # dark blue
@@ -3512,125 +3453,244 @@ def run_scc_complexity_analysis(
         "runtime_fvs": "Runtime FVS"
     }
 
-    # Plot A: Containment Ratio vs SCC Count Bucket
-    fig, ax = plt.subplots(figsize=(10, 6.5))
-    policies_to_plot = ["runtime_fvs", "static_fvs", "degree_centrality", "random_revocation", "no_containment"]
-    for p in policies_to_plot:
-        p_means = []
-        p_cis = []
-        buckets_present = []
-        for bucket in buckets_list:
-            sub = df[(df["SCC_Count_Bucket"] == bucket) & (df["Policy"] == p)]
-            if not sub.empty:
-                vals = sub["Containment Ratio"].to_numpy() * 100
-                mean = np.mean(vals)
-                std = np.std(vals, ddof=1) if len(vals) > 1 else 0.0
-                n = len(vals)
-                margin = t.ppf(0.975, df=n-1) * (std / np.sqrt(n)) if n > 1 else 0.0
-                p_means.append(mean)
-                p_cis.append(margin)
-                buckets_present.append(bucket)
-        
-        if buckets_present:
-            color = color_map.get(p, "#808080")
-            is_fvs = (p == "runtime_fvs")
-            lw = 3.0 if is_fvs else 1.8
-            zo = 5 if is_fvs else 3
-            ax.errorbar(
-                buckets_present, p_means, yerr=p_cis, 
-                label=label_map[p], color=color, linewidth=lw, 
-                marker="o" if is_fvs else "s", capsize=4, zorder=zo
-            )
-            
-    ax.set_xlabel("Number of SCCs", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Average Containment Ratio (%)", fontsize=12, fontweight="bold")
-    ax.set_title("Efficacy Decay under Increasing Graph Complexity", fontsize=13, fontweight="bold")
-    ax.grid(linestyle="--", alpha=0.5)
-    ax.set_ylim(-5, 105)
-    ax.legend(loc="lower left", fontsize=10.5)
-    fig.tight_layout()
-    fig.savefig(figures_dir / "scc_count_vs_containment_ratio.png", dpi=600)
-    fig.savefig(figures_dir / "scc_count_vs_containment_ratio.pdf")
-    plt.close(fig)
+    policies_to_plot = list(policy_records.keys())
 
-    # Plot B: Propagation Depth vs SCC Count Bucket
-    fig, ax = plt.subplots(figsize=(10, 6.5))
-    for p in policies_to_plot:
-        p_means = []
-        p_cis = []
-        buckets_present = []
-        for bucket in buckets_list:
-            sub = df[(df["SCC_Count_Bucket"] == bucket) & (df["Policy"] == p)]
-            if not sub.empty:
-                vals = sub["Propagation Depth After"].to_numpy()
-                mean = np.mean(vals)
-                std = np.std(vals, ddof=1) if len(vals) > 1 else 0.0
-                n = len(vals)
-                margin = t.ppf(0.975, df=n-1) * (std / np.sqrt(n)) if n > 1 else 0.0
-                p_means.append(mean)
-                p_cis.append(margin)
+    def plot_bucket_metric(
+        summary_df: pd.DataFrame,
+        bucket_col: str,
+        bucket_order: list[str],
+        metric_mean_col: str,
+        metric_source_col: str,
+        y_label: str,
+        title: str,
+        output_stem: str,
+        scale_percent: bool = False,
+    ) -> None:
+        fig, ax = plt.subplots(figsize=(12, 7))
+        for policy in policies_to_plot:
+            policy_rows = summary_df[summary_df["Policy"] == policy].set_index(bucket_col)
+            means = []
+            errors = []
+            buckets_present = []
+            for bucket in bucket_order:
+                if bucket not in policy_rows.index:
+                    continue
+                row = policy_rows.loc[bucket]
+                mean = float(row[metric_mean_col])
+                lower = float(row[f"{metric_source_col} 95% CI Lower"])
+                upper = float(row[f"{metric_source_col} 95% CI Upper"])
+                if scale_percent:
+                    mean *= 100
+                    lower *= 100
+                    upper *= 100
+                means.append(mean)
+                errors.append([[mean - lower], [upper - mean]])
                 buckets_present.append(bucket)
-        
-        if buckets_present:
-            color = color_map.get(p, "#808080")
-            is_fvs = (p == "runtime_fvs")
-            lw = 3.0 if is_fvs else 1.8
-            zo = 5 if is_fvs else 3
-            ax.errorbar(
-                buckets_present, p_means, yerr=p_cis, 
-                label=label_map[p], color=color, linewidth=lw, 
-                marker="o" if is_fvs else "s", capsize=4, zorder=zo
-            )
-            
-    ax.set_xlabel("Number of SCCs", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Average Propagation Depth (Hops)", fontsize=12, fontweight="bold")
-    ax.set_title("Compromise Propagation Depth by Graph Complexity", fontsize=13, fontweight="bold")
-    ax.grid(linestyle="--", alpha=0.5)
-    ax.legend(loc="upper left", fontsize=10.5)
-    fig.tight_layout()
-    fig.savefig(figures_dir / "scc_count_vs_propagation_depth.png", dpi=600)
-    fig.savefig(figures_dir / "scc_count_vs_propagation_depth.pdf")
-    plt.close(fig)
+            if not buckets_present:
+                continue
 
-    # Plot C: Compromise Footprint vs Largest SCC Size
-    fig, ax = plt.subplots(figsize=(10, 6.5))
-    largest_scc_buckets_list = ["0-1", "2-4", "5-8", "9-12", "13+"]
-    for p in policies_to_plot:
-        p_means = []
-        p_cis = []
-        buckets_present = []
-        for bucket in largest_scc_buckets_list:
-            sub = df[(df["Largest_SCC_Bucket"] == bucket) & (df["Policy"] == p)]
-            if not sub.empty:
-                vals = sub["Infected After"].to_numpy()
-                mean = np.mean(vals)
-                std = np.std(vals, ddof=1) if len(vals) > 1 else 0.0
-                n = len(vals)
-                margin = t.ppf(0.975, df=n-1) * (std / np.sqrt(n)) if n > 1 else 0.0
-                p_means.append(mean)
-                p_cis.append(margin)
-                buckets_present.append(bucket)
-        
-        if buckets_present:
-            color = color_map.get(p, "#808080")
-            is_fvs = (p == "runtime_fvs")
-            lw = 3.0 if is_fvs else 1.8
-            zo = 5 if is_fvs else 3
+            yerr = np.array(errors).reshape(len(errors), 2).T
+            is_runtime = policy == "runtime_fvs"
             ax.errorbar(
-                buckets_present, p_means, yerr=p_cis, 
-                label=label_map[p], color=color, linewidth=lw, 
-                marker="o" if is_fvs else "s", capsize=4, zorder=zo
+                buckets_present,
+                means,
+                yerr=yerr,
+                label=label_map.get(policy, policy),
+                color=color_map.get(policy, "#808080"),
+                linewidth=3.2 if is_runtime else 1.7,
+                marker="o" if is_runtime else "s",
+                markersize=7 if is_runtime else 5,
+                capsize=4,
+                alpha=1.0 if is_runtime else 0.82,
+                zorder=6 if is_runtime else 3,
             )
-            
-    ax.set_xlabel("Largest SCC Size (Nodes)", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Average Compromise Footprint (Infected Nodes)", fontsize=12, fontweight="bold")
-    ax.set_title("Compromise Footprint by Cycle Cluster Size", fontsize=13, fontweight="bold")
-    ax.grid(linestyle="--", alpha=0.5)
-    ax.legend(loc="upper left", fontsize=10.5)
-    fig.tight_layout()
-    fig.savefig(figures_dir / "largest_scc_vs_footprint.png", dpi=600)
-    fig.savefig(figures_dir / "largest_scc_vs_footprint.pdf")
-    plt.close(fig)
+
+        ax.set_xlabel(bucket_col.replace("_", " "), fontsize=12, fontweight="bold")
+        ax.set_ylabel(y_label, fontsize=12, fontweight="bold")
+        ax.set_title(title, fontsize=14, fontweight="bold")
+        ax.grid(linestyle="--", alpha=0.45)
+        if scale_percent:
+            ax.set_ylim(-5, 105)
+        ax.legend(loc="best", fontsize=8.5, ncol=2)
+        fig.tight_layout()
+        fig.savefig(figures_dir / f"{output_stem}.png", dpi=600)
+        fig.savefig(figures_dir / f"{output_stem}.pdf")
+        plt.close(fig)
+
+    # Required publication-quality structural-complexity figures.
+    plot_bucket_metric(
+        scc_count_summary,
+        "SCC_Count_Bucket",
+        buckets_list,
+        "Mean Containment Ratio",
+        "Containment Ratio",
+        "Mean Containment Ratio (%)",
+        "Containment Ratio vs SCC Count",
+        "containment_ratio_vs_scc_count",
+        scale_percent=True,
+    )
+    plot_bucket_metric(
+        scc_count_summary,
+        "SCC_Count_Bucket",
+        buckets_list,
+        "Mean Propagation Depth After",
+        "Propagation Depth After",
+        "Mean Propagation Depth After",
+        "Propagation Depth vs SCC Count",
+        "propagation_depth_vs_scc_count",
+    )
+    plot_bucket_metric(
+        scc_count_summary,
+        "SCC_Count_Bucket",
+        buckets_list,
+        "Mean Infected After",
+        "Infected After",
+        "Mean Infected After",
+        "Compromise Footprint (Infected After) vs SCC Count",
+        "infected_after_vs_scc_count",
+    )
+    plot_bucket_metric(
+        scc_count_summary,
+        "SCC_Count_Bucket",
+        buckets_list,
+        "Mean Revocation Cost",
+        "FVS Size",
+        "Mean Revocation Cost",
+        "Revocation Cost vs SCC Count",
+        "revocation_cost_vs_scc_count",
+    )
+    plot_bucket_metric(
+        largest_scc_summary,
+        "Largest_SCC_Bucket",
+        largest_scc_buckets_list,
+        "Mean Containment Ratio",
+        "Containment Ratio",
+        "Mean Containment Ratio (%)",
+        "Containment Ratio vs Largest SCC Size",
+        "containment_ratio_vs_largest_scc_size",
+        scale_percent=True,
+    )
+
+    runtime_summary = scc_count_summary[scc_count_summary["Policy"] == "runtime_fvs"]
+    interaction_rows = regression_df[
+        regression_df["Variable"].astype(str).str.startswith("Interaction_")
+    ].copy()
+    negative_significant = interaction_rows[
+        (interaction_rows["Coefficient"] < 0) & (interaction_rows["p-value"] < 0.05)
+    ] if not interaction_rows.empty else pd.DataFrame()
+
+    def markdown_table(table_df: pd.DataFrame) -> str:
+        if table_df.empty:
+            return "_No rows available._"
+        columns = list(table_df.columns)
+        lines = [
+            "| " + " | ".join(columns) + " |",
+            "| " + " | ".join("---" for _ in columns) + " |",
+        ]
+        for _, row in table_df.iterrows():
+            values = []
+            for column in columns:
+                value = row[column]
+                if isinstance(value, float):
+                    values.append(f"{value:.4g}")
+                else:
+                    values.append(str(value))
+            lines.append("| " + " | ".join(values) + " |")
+        return "\n".join(lines)
+
+    report_lines = [
+        "# Structural Complexity Evaluation",
+        "",
+        "This subsection evaluates containment performance under increasing runtime graph complexity using the existing experiment outputs. No runtime trust graphs were regenerated, no SCC buckets were rebalanced, and no containment policies were changed.",
+        "",
+        "## Inputs",
+        "",
+        f"- Policy/run observations analysed: {len(df)}",
+        f"- Policies: {', '.join(policy_records.keys())}",
+        "- SCC Count buckets: 1, 2, 3, 4, 5+",
+        "- Largest SCC Size buckets: 1-2, 3-5, 6-8, 9+",
+        "",
+        "## Theorem 2 Validation Framing",
+        "",
+        "Theorem 2 is evaluated empirically by checking whether Runtime FVS maintains high containment as SCC count and largest SCC size increase, while behavioural or heuristic baselines show stronger degradation under the same structural complexity.",
+        "",
+        "## Runtime FVS by SCC Count",
+        "",
+        markdown_table(runtime_summary[[
+            "SCC_Count_Bucket",
+            "Sample Size",
+            "Mean Containment Ratio",
+            "Containment Ratio 95% CI",
+            "Mean Infected After",
+            "Infected After 95% CI",
+            "Mean Propagation Depth After",
+            "Propagation Depth After 95% CI",
+            "Mean Revocation Cost",
+            "FVS Size 95% CI",
+        ]]),
+        "",
+        "## Interaction Regression",
+        "",
+        "Model: `Containment Ratio ~ Initial SCC Count + Policy + Initial SCC Count × Policy`, with Runtime FVS as the reference category.",
+        "",
+        f"- Observations: {N}",
+        f"- Residual degrees of freedom: {df_resid}",
+        f"- R-squared: {r_sq:.4f}" if not np.isnan(r_sq) else "- R-squared: unavailable",
+        "",
+        "Interaction coefficients quantify whether each baseline's containment-ratio slope changes faster or slower than Runtime FVS as SCC count increases. A significant negative interaction means the baseline degrades faster than Runtime FVS under increasing structural complexity.",
+        "",
+    ]
+    if regression_error:
+        report_lines.extend(["Regression error:", "", regression_error, ""])
+    else:
+        report_lines.extend([
+            markdown_table(regression_df[[
+                "Variable",
+                "Coefficient",
+                "Std Error",
+                "t-statistic",
+                "p-value",
+                "Significant",
+            ]]),
+            "",
+        ])
+
+    if not negative_significant.empty:
+        report_lines.extend([
+            "## Faster-Degrading Baselines",
+            "",
+            "The following policies have significant negative SCC interaction terms relative to Runtime FVS:",
+            "",
+            markdown_table(negative_significant[["Variable", "Coefficient", "p-value"]]),
+            "",
+        ])
+    else:
+        report_lines.extend([
+            "## Faster-Degrading Baselines",
+            "",
+            "No policy showed a statistically significant negative SCC interaction relative to Runtime FVS in this run.",
+            "",
+        ])
+
+    report_lines.extend([
+        "## Generated Files",
+        "",
+        "- `scc_bucket_summary.csv`",
+        "- `largest_scc_summary.csv`",
+        "- `scc_regression_results.csv`",
+        "- `scc_analysis.md`",
+        "- `figures/containment_ratio_vs_scc_count.png` and `.pdf`",
+        "- `figures/propagation_depth_vs_scc_count.png` and `.pdf`",
+        "- `figures/infected_after_vs_scc_count.png` and `.pdf`",
+        "- `figures/revocation_cost_vs_scc_count.png` and `.pdf`",
+        "- `figures/containment_ratio_vs_largest_scc_size.png` and `.pdf`",
+        "",
+        "These outputs complement the existing aggregate baseline comparison files and do not replace them.",
+    ])
+
+    (experiment_dir / "scc_analysis.md").write_text("\n".join(report_lines) + "\n", encoding="utf-8")
+    # Backward-compatible report retained for existing workflows.
+    (experiment_dir / "scc_stratified_significance_report.md").write_text("\n".join(report_lines) + "\n", encoding="utf-8")
 
 
 def print_summary(experiment_id: str, experiment_dir: Path, results: pd.DataFrame) -> None:
