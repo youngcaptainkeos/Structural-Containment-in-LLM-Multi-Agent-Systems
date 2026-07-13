@@ -1,5 +1,5 @@
-Topology,Description,Tau,SCC Count,Largest SCC Size,Distinct States,Total States,Diameter,Runtime,Memory,Verification Status
-Topology A,Single cyclic Runtime SCC (Milestone 1 core topology),1,1,3,21,29,8,1.20s,3930MB,SUCCESS
-Topology B,Two cyclic Runtime SCCs connected via bridge,2,2,3,55,80,10,1.50s,3930MB,SUCCESS
-Topology C,Nested cyclic Runtime SCC hierarchical topology,2,2,4,98,145,11,1.54s,3930MB,SUCCESS
-Topology D,Cross-linked department cyclic workflows,2,1,9,225,470,14,1.51s,3930MB,SUCCESS
+Topology,Description,Tau,SCC Count,Largest SCC Size,Distinct States,Total States,Diameter,Runtime,Verification Status
+Topology A,Single cyclic Runtime SCC (Milestone 1 core topology),1,1,4,29,45,9,1.54s,SUCCESS
+Topology B,Two cyclic Runtime SCCs connected via bridge,2,2,3,55,80,10,1.33s,SUCCESS
+Topology C,Nested cyclic Runtime SCC hierarchical topology,2,2,4,98,145,11,1.52s,SUCCESS
+Topology D,Cross-linked department cyclic workflows,2,1,9,225,470,14,1.64s,SUCCESS

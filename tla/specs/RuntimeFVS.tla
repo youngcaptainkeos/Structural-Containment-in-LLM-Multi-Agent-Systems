@@ -70,36 +70,35 @@ PropagationCandidates == OutgoingNeighbors(compromised) \ (compromised \cup revo
 \* CanPropagate returns TRUE if there are any propagation candidates left
 CanPropagate == PropagationCandidates /= {}
 
-\* Helper operators to compute reachability excluding FVS nodes for cycle detection (unrolled to 10 steps using LET-caching)
-ReachStep(S, fvs) == { v \in Agents \ fvs : \exists u \in S : <<u, v>> \in trustEdges }
-ReachNoSelf1(a, fvs) == ReachStep({a}, fvs)
-ReachNoSelf2(a, fvs) == LET r == ReachNoSelf1(a, fvs) IN r \cup ReachStep(r, fvs)
-ReachNoSelf3(a, fvs) == LET r == ReachNoSelf2(a, fvs) IN r \cup ReachStep(r, fvs)
-ReachNoSelf4(a, fvs) == LET r == ReachNoSelf3(a, fvs) IN r \cup ReachStep(r, fvs)
-ReachNoSelf5(a, fvs) == LET r == ReachNoSelf4(a, fvs) IN r \cup ReachStep(r, fvs)
-ReachNoSelf6(a, fvs) == LET r == ReachNoSelf5(a, fvs) IN r \cup ReachStep(r, fvs)
-ReachNoSelf7(a, fvs) == LET r == ReachNoSelf6(a, fvs) IN r \cup ReachStep(r, fvs)
-ReachNoSelf8(a, fvs) == LET r == ReachNoSelf7(a, fvs) IN r \cup ReachStep(r, fvs)
-ReachNoSelf9(a, fvs) == LET r == ReachNoSelf8(a, fvs) IN r \cup ReachStep(r, fvs)
-ReachNoSelf10(a, fvs) == LET r == ReachNoSelf9(a, fvs) IN r \cup ReachStep(r, fvs)
+ReachStep(edges, S, fvs) == { v \in Agents \ fvs : \exists u \in S : <<u, v>> \in edges }
+ReachNoSelf1(edges, a, fvs) == ReachStep(edges, {a}, fvs)
+ReachNoSelf2(edges, a, fvs) == LET r == ReachNoSelf1(edges, a, fvs) IN r \cup ReachStep(edges, r, fvs)
+ReachNoSelf3(edges, a, fvs) == LET r == ReachNoSelf2(edges, a, fvs) IN r \cup ReachStep(edges, r, fvs)
+ReachNoSelf4(edges, a, fvs) == LET r == ReachNoSelf3(edges, a, fvs) IN r \cup ReachStep(edges, r, fvs)
+ReachNoSelf5(edges, a, fvs) == LET r == ReachNoSelf4(edges, a, fvs) IN r \cup ReachStep(edges, r, fvs)
+ReachNoSelf6(edges, a, fvs) == LET r == ReachNoSelf5(edges, a, fvs) IN r \cup ReachStep(edges, r, fvs)
+ReachNoSelf7(edges, a, fvs) == LET r == ReachNoSelf6(edges, a, fvs) IN r \cup ReachStep(edges, r, fvs)
+ReachNoSelf8(edges, a, fvs) == LET r == ReachNoSelf7(edges, a, fvs) IN r \cup ReachStep(edges, r, fvs)
+ReachNoSelf9(edges, a, fvs) == LET r == ReachNoSelf8(edges, a, fvs) IN r \cup ReachStep(edges, r, fvs)
+ReachNoSelf10(edges, a, fvs) == LET r == ReachNoSelf9(edges, a, fvs) IN r \cup ReachStep(edges, r, fvs)
 
-IsFVS(fvs) ==
+ValidFeedbackVertexSet(edges, fvs) ==
     \forall a \in (UNION cyclicSCCs) \ fvs :
-        a \notin ReachNoSelf10(a, fvs)
+        a \notin ReachNoSelf10(edges, a, fvs)
 
 \* Bounded fixed-point reachability operators (unrolled to 10 steps using LET-caching)
-Reach1(S) == S \cup { v \in Agents : \exists u \in S : <<u, v>> \in trustEdges }
-Reach2(S) == LET r == Reach1(S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in trustEdges }
-Reach3(S) == LET r == Reach2(S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in trustEdges }
-Reach4(S) == LET r == Reach3(S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in trustEdges }
-Reach5(S) == LET r == Reach4(S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in trustEdges }
-Reach6(S) == LET r == Reach5(S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in trustEdges }
-Reach7(S) == LET r == Reach6(S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in trustEdges }
-Reach8(S) == LET r == Reach7(S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in trustEdges }
-Reach9(S) == LET r == Reach8(S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in trustEdges }
-Reach10(S) == LET r == Reach9(S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in trustEdges }
+Reach1(edges, S) == S \cup { v \in Agents : \exists u \in S : <<u, v>> \in edges }
+Reach2(edges, S) == LET r == Reach1(edges, S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in edges }
+Reach3(edges, S) == LET r == Reach2(edges, S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in edges }
+Reach4(edges, S) == LET r == Reach3(edges, S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in edges }
+Reach5(edges, S) == LET r == Reach4(edges, S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in edges }
+Reach6(edges, S) == LET r == Reach5(edges, S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in edges }
+Reach7(edges, S) == LET r == Reach6(edges, S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in edges }
+Reach8(edges, S) == LET r == Reach7(edges, S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in edges }
+Reach9(edges, S) == LET r == Reach8(edges, S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in edges }
+Reach10(edges, S) == LET r == Reach9(edges, S) IN r \cup { v \in Agents : \exists u \in r : <<u, v>> \in edges }
 
-BoundaryReachable(S) == (Reach10(S) \cap BoundaryAgents) /= {}
+BoundaryReachable(edges, S) == (Reach10(edges, S) \cap BoundaryAgents) /= {}
 
 \* Bounded reachability operators in active trustEdges (without FVS exclusion) for cycle-breaking invariant (unrolled to 10 steps using LET-caching)
 ReachActiveStep(S) == { v \in Agents : \exists u \in S : <<u, v>> \in trustEdges }
@@ -255,14 +254,16 @@ Next ==
        /\ \exists fvs \in SUBSET (UNION cyclicSCCs) :
             /\ fvs \cap BoundaryAgents = {}
             /\ cyclicSCCs /= {} => fvs /= {}
-            /\ IsFVS(fvs)
+            /\ LET updatedEdges == { edge \in trustEdges :
+                                       /\ edge[1] \notin fvs
+                                       /\ edge[2] \notin fvs }
+               IN
+                   /\ ValidFeedbackVertexSet(updatedEdges, fvs)
+                   /\ trustEdges' = updatedEdges
             /\ Cardinality(fvs) <= Tau
             /\ runtimeFVS' = fvs
             /\ revoked' = revoked \cup fvs
             /\ compromised' = compromised \ fvs
-            /\ trustEdges' = { edge \in trustEdges :
-                                 /\ edge[1] \notin fvs
-                                 /\ edge[2] \notin fvs }
             /\ phase' = Verify
             /\ UNCHANGED
                  << contained,
@@ -272,7 +273,7 @@ Next ==
 
     \/ /\ phase = Verify
        /\ phase' = Finished
-       /\ contained' = ~BoundaryReachable(compromised)
+       /\ contained' = ~BoundaryReachable(trustEdges, compromised)
        /\ UNCHANGED
             << trustEdges,
                compromised,
@@ -308,10 +309,16 @@ RuntimeFVSSubsetAgents == runtimeFVS \subseteq Agents
 CompromisedSubsetAgents == compromised \subseteq Agents
 RevokedNodesDisconnected == \forall e \in trustEdges : e[1] \notin revoked /\ e[2] \notin revoked
 BoundaryNeverRevoked == revoked \cap BoundaryAgents = {}
-ContainedImpliesNoBoundaryReachability == contained => ~BoundaryReachable(compromised)
+ContainedImpliesNoBoundaryReachability == contained => ~BoundaryReachable(trustEdges, compromised)
 RuntimeFVSSubsetCyclicSCCs == runtimeFVS \subseteq (UNION cyclicSCCs)
 BoundaryNeverCompromisedWhenContained == contained => compromised \cap BoundaryAgents = {}
-SymbolicCycleBreaking == (phase = Finished) => ~(\exists a \in Agents \ BoundaryAgents : a \in ReachActiveNoSelf10(a))
+
+CyclesBrokenAfterContainment ==
+    (phase = Finished) =>
+        \forall a \in Agents \ BoundaryAgents :
+            a \notin ReachActiveNoSelf10(a)
+
+SymbolicCycleBreaking == CyclesBrokenAfterContainment
 
 \* Monotonicity & Temporal Properties
 CompromisedMonotonic == [][(phase = Build \/ phase = Propagate) => compromised \subseteq compromised']_vars
@@ -323,7 +330,9 @@ PhaseOrder == [][
   \/ (phase = Verify) /\ (phase' \in {Verify, Finished})
   \/ (phase = Finished) /\ (phase' \in {Finished})
 ]_vars
-EventualContainment == (\forall b_node \in BoundaryAgents : []~(b_node \in compromised)) => <>(contained)
+EventualContainment ==
+    \A ba \in BoundaryAgents :
+        ([] ~(ba \in compromised)) => <> contained
 Termination == <>(phase = Finished)
 
 =============================================================================

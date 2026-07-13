@@ -4,9 +4,9 @@ This report presents the formal verification results for the Runtime Feedback Ve
 
 
 > [Spacer Note]
-> The TLA+ specification intentionally models Representative Topology abstractions rather than arbitrary graphs. Runtime SCCs and Runtime FVS selection are represented symbolically rather than through explicit graph algorithms. This follows standard practice in Protocol Verification, where the objective is to verify behavioral correctness independently of implementation details. Multiple Representative Topology abstractions spanning different SCC structures and feedback vertex set budgets were verified to demonstrate that the Containment Protocol is not specific to a single graph configuration.
+> The TLA+ specification verifies the protocol behavior over representative symbolic enterprise trust topologies. Runtime SCCs and Runtime FVS selection are represented symbolically rather than through explicit graph algorithms. This follows standard practice in Protocol Verification, where the objective is to verify behavioral correctness independently of implementation details. Multiple Representative Topology abstractions spanning different SCC structures and feedback vertex set budgets were verified to demonstrate that the Containment Protocol is not specific to a single graph configuration.
 > 
-> The Symbolic Abstraction verification is complementary to the mathematical proofs presented in the paper. Theorems establish correctness for arbitrary trust graphs, while TLA+ exhaustively verifies representative protocol executions over finite enterprise trust graph abstractions.
+> The Symbolic Abstraction verification is complementary to the mathematical proofs presented in the paper. The TLA+ specification verifies the protocol behavior over representative symbolic enterprise trust topologies. General correctness over arbitrary trust graphs is established analytically by the mathematical proofs.
 
 
 ## 1. Representative Topology Selection
@@ -17,7 +17,7 @@ To demonstrate the generality of the Containment Protocol, we verify its correct
 - *Graph Structure*: Models a 5-agent branching graph where a cyclic core feeds into an acyclic Boundary Agent.
 - *SCC Characteristics*:
   - **General Protocol Topology**: Features a single cyclic Runtime SCC of size 4 ({w, x, y, z}) and an acyclic Boundary Agent.
-  - **Verification Configuration used during TLC**: Under the 4-agent model-checking constraint, the topology dynamically scales down to a 3-agent cyclic core ({x, y, z}). This explains why the descriptive narrative details a 4-agent SCC, while the model-checking results in Table 1 report a Largest SCC size of 3.
+  - **Verification Configuration used during TLC**: Verified using 5 agents (4 non-boundary agents + 1 Boundary Agent) to preserve the full 4-node cyclic core ({w, x, y, z}). This ensures the verification configuration matches the general 4-node strongly connected component layout.
 - *Containment Scenario*: A single compromised agent in the loop propagates threat through the cycle, requiring Tau = 1 to revoke and contain the threat.
 - *Protocol Stress*: Tests basic propagation termination and single-agent FVS cycle breaking.
 
@@ -34,8 +34,8 @@ To demonstrate the generality of the Containment Protocol, we verify its correct
 - *Protocol Stress*: Exercises multi-hop reachability checks and hierarchical cycle-breaking dependencies.
 
 ### Topology D (Cross-Linked Department Cyclic Workflows)
-- *Graph Structure*: Three logical enterprise departments (Dept A, Dept B, Dept C) connected in a global cross-review loop.
-- *SCC Characteristics*: Although the topology represents three distinct departments, the presence of cyclic cross-review dependencies (u3 -> u4, u4 -> u7, u6 -> u8, u9 -> u1) merges all 9 departmental nodes into one global strongly connected component (SCC Count = 1, Largest SCC Size = 9).
+- *Graph Structure*: Topology D models three logical enterprise departments connected through cyclic cross-review dependencies.
+- *SCC Characteristics*: Although the departments are organizationally distinct, the bidirectional feedback links merge all departmental agents into a single strongly connected component (SCC Count = 1, Largest SCC Size = 9). This topology therefore represents the most structurally coupled workflow evaluated.
 - *Containment Scenario*: Complex cross-linking creates multiple feedback cycles and propagation routes, requiring Runtime FVS selections of size 2 (Tau = 2) to break the cycle structure.
 - *Protocol Stress*: Stresses the reachability checks and liveness properties on a highly cyclic and dense state space.
 
@@ -102,18 +102,17 @@ The following ASCII schematics illustrate the structural properties and cycle st
 
 ## 3. Table 1: Representative Topology Verification Results
 
-| Representative Topology | Description | Tau | SCC Count | Largest SCC Size | Distinct States | Total States | Diameter | Runtime | Configured JVM Heap | Verification Status |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| Topology A | Single cyclic Runtime SCC (Milestone 1 core topology) | 1 | 1 | 3 | 21 | 29 | 8 | 1.20s | 3930MB | **PASSED** |
-| Topology B | Two cyclic Runtime SCCs connected via bridge | 2 | 2 | 3 | 55 | 80 | 10 | 1.50s | 3930MB | **PASSED** |
-| Topology C | Nested cyclic Runtime SCC hierarchical topology | 2 | 2 | 4 | 98 | 145 | 11 | 1.54s | 3930MB | **PASSED** |
-| Topology D | Cross-linked department cyclic workflows | 2 | 1 | 9 | 225 | 470 | 14 | 1.51s | 3930MB | **PASSED** |
+| Representative Topology | Description | Tau | SCC Count | Largest SCC Size | Distinct States | Total States | Diameter | Runtime | Verification Status |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| Topology A | Single cyclic Runtime SCC (Milestone 1 core topology) | 1 | 1 | 4 | 29 | 45 | 9 | 1.54s | **PASSED** |
+| Topology B | Two cyclic Runtime SCCs connected via bridge | 2 | 2 | 3 | 55 | 80 | 10 | 1.33s | **PASSED** |
+| Topology C | Nested cyclic Runtime SCC hierarchical topology | 2 | 2 | 4 | 98 | 145 | 11 | 1.52s | **PASSED** |
+| Topology D | Cross-linked department cyclic workflows | 2 | 1 | 9 | 225 | 470 | 14 | 1.64s | **PASSED** |
 
 ### Statistics Interpretation
 - **Distinct States**: The number of unique protocol configurations explored by TLC. This indicates the exhaustive coverage of distinct reachable states under our Representative Topology models.
 - **Total States**: The total number of states visited during BFS exploration. Duplicate states arise because multiple nondeterministic protocol executions can converge to the same reachable configuration during breadth-first exploration.
 - **Diameter**: The maximum number of transition steps required to reach any state from the initial state (maximum search depth). Larger diameters indicate deeper protocol execution traces (e.g., longer compromise propagation and verification paths).
-- **Configured JVM Heap**: The maximum memory allocated for the TLC process execution (-Xmx parameter), ensuring environment replication consistency.
 - **Tau Value Parameterization**: In the verification configuration, Tau corresponds to the minimum symbolic FVS budget required to eliminate every cycle in the Representative Topology.
 
 ---
@@ -205,10 +204,11 @@ The soundness of our Symbolic Abstraction rests on the following property mappin
 
 ## 8. Bounded Reachability Justification
 
-The specification utilizes bounded fixed-point reachability operators unrolled to 10 steps (`Reach10` and `ReachActiveNoSelf10`). This bound is **mathematically sufficient** rather than heuristic:
-- **Maximum Path Length**: The largest protocol model contains 10 agents.
+The specification utilizes bounded reachability operators unrolled to 10 steps (`Reach10` and `ReachActiveNoSelf10`). This bound is mathematically complete for the Representative Topology abstractions:
+- **Maximum Path Length**: The largest verified topology contains 10 agents.
 - **Simple Paths**: In any directed graph with |V| vertices, a simple (non-self-intersecting) path can contain at most |V|-1 edges. For our largest configuration (Topology D, |V|=10), the maximum simple path length is 9.
-- **Completeness**: Consequently, ten expansion steps are mathematically guaranteed to traverse every reachable node pair in our topologies. The reachability bounds are therefore complete for the evaluated graphs.
+- **Completeness**: Consequently, the 10-step unrolled reachability operator performs exact reachability for every representative topology evaluated.
+- **Generality**: The TLA+ specification verifies the protocol behavior over representative symbolic enterprise trust topologies. General correctness over arbitrary trust graphs is established analytically by the mathematical proofs rather than the bounded model.
 
 ---
 
@@ -216,7 +216,7 @@ The specification utilizes bounded fixed-point reachability operators unrolled t
 - **Representative Topology Abstractions**: Verification is performed on Representative Topology abstractions (Topologies A-D) rather than arbitrary graphs. General correctness is established by the mathematical proofs.
 - **Fixed SCCs during Episode**: Runtime SCCs are represented as a symbolic invariant partition derived from the initial graph state and are not recomputed dynamically during a protocol execution.
 - **Bounded Reachability**: Cycle detection and Boundary Agent reachability are verified within a 10-hop bound, which is mathematically sufficient for these topologies.
-- **Verification Abstractness**: The TLA+ specification provides exhaustive verification over representative finite abstractions, whereas the mathematical theorems establish correctness for arbitrary trust graphs.
+- **Verification Abstractness**: The TLA+ specification verifies the protocol behavior over representative symbolic enterprise trust topologies. General correctness over arbitrary trust graphs is established analytically by the mathematical proofs.
 
 ---
 
