@@ -1,0 +1,14 @@
+.git
+
+__pycache__/
+*.pyc
+
+.vscode/
+
+paper/
+
+tla/results/
+
+langgraph-fvs-test/experiment sample data/
+
+.env

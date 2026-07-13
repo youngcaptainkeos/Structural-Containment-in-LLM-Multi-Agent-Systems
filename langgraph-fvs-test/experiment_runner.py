@@ -2731,7 +2731,7 @@ def run_experiment() -> tuple[str, Path, pd.DataFrame]:
             "enterprise_sizes": [32],
             "workflow_families": 10,
             "prompts_per_family": 10,
-            "compromise_rotation": true,
+            "compromise_rotation": True,
             "seed": 42
         }
     
