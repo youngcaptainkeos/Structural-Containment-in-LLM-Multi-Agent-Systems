@@ -187,8 +187,19 @@ Verified protocol properties include
 Verification is performed over multiple representative enterprise trust graph topologies of increasing structural complexity.
 
 ---
+## Docker
 
-# Running the Empirical Evaluation
+Build:
+
+docker build -t structural-containment-llm-mas .
+
+Run:
+
+docker run --rm structural-containment-llm-mas
+
+---
+# Running the Empirical Evaluation manually
+
 
 Install dependencies
 
