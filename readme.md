@@ -262,8 +262,8 @@ If you use this repository in academic work, please cite:
 
 ```
 @article{runtimefvs2026,
-  title={Structural Containment in LLM Multi-Agent Systems: Detection Is Behavioral. Containment Is Structural},
-  author={...},
+  title={Structural Containment in LLM Multi-Agent Systems: Detection Is Behavioral. Containment Is Structural.},
+  author={Shashank Keshava Murthy, Sumukh Shandilya, Supreeth K},
   journal={Under Review},
   year={2026}
 }
